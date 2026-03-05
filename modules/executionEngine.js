@@ -1,7 +1,7 @@
 /**
  * executionEngine.js
  * Runs code segments sequentially with pauses between each.
- * Updates the execution log panel and progress bar.
+ * Updates the execution log panel, progress bar, and StepNavigator overlay.
  */
 const ExecutionEngine = (() => {
 
@@ -24,21 +24,30 @@ const ExecutionEngine = (() => {
         _progressStrip.classList.add('visible');
         _log('info', `Starting execution: ${segments.length} segment(s)`);
 
+        // Hand segment list to navigator so it can render labels etc.
+        StepNavigator.loadSegments(segments);
+
         let completed = 0;
 
-        for (const seg of segments) {
+        for (let i = 0; i < segments.length; i++) {
+            const seg = segments[i];
+
             _updateProgress(completed, segments.length);
             _log('info', `▶ ${seg.description}`);
 
+            // Show overlay in running state while code executes
+            StepNavigator.markRunning(i);
+
             try {
-                // Execute the segment's code string in an async context.
-                // PLACEHOLDER: consider sandboxing / validation before eval.
                 const fn = _makeAsyncFn(seg.code);
                 await fn();
 
                 completed++;
                 _updateProgress(completed, segments.length);
                 _log('ok', `✓ ${seg.description}`);
+
+                // Switch overlay to completed state and focus ranges
+                await StepNavigator.markComplete(i);
 
             } catch (err) {
                 _log('err', `✗ ${seg.description}: ${err.message}`);
@@ -56,6 +65,7 @@ const ExecutionEngine = (() => {
         if (completed === segments.length) {
             _setStatus('success');
             _log('ok', 'All segments complete.');
+            // Navigator stays open so user can review steps freely
         }
     }
 

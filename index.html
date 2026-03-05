@@ -3,14 +3,16 @@
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>SheetCheck</title>
+    <title>Excel AI Assistant</title>
 
+    <!-- Office.js — must load first -->
     <script src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js"></script>
 
     <!-- Styles -->
     <link rel="stylesheet" href="styles/theme.css" />
     <link rel="stylesheet" href="styles/chat.css" />
     <link rel="stylesheet" href="styles/execution.css" />
+    <link rel="stylesheet" href="styles/stepNavigator.css" />
 </head>
 
 <body>
@@ -22,8 +24,8 @@
 
         <div id="chat-header">
             <div class="logo-dot"></div>
-            <h1>SheetCheck</h1>
-            <span class="model-badge">Mistral / GPT / Claude</span>
+            <h1>Excel AI Assistant</h1>
+            <span class="model-badge">GPT / Claude</span>
         </div>
 
         <div id="message-feed">
@@ -47,7 +49,6 @@
                 <span class="context-chip active" data-context="selection">Selection</span>
                 <span class="context-chip"        data-context="sheet">Sheet Data</span>
                 <span class="context-chip"        data-context="named-ranges">Named Ranges</span>
-                <!-- PLACEHOLDER: more chips added dynamically -->
             </div>
 
             <div id="input-row">
@@ -62,6 +63,34 @@
             </div>
         </div>
 
+    </div>
+
+
+    <!-- =============================================
+         Component: Step Navigator Overlay
+         Floats above the execution panel.
+         ============================================= -->
+    <div id="step-navigator">
+        <button id="step-nav-close">✕</button>
+
+        <div id="step-nav-badge">Step 1 of 8</div>
+
+        <div id="step-nav-ranges">
+            <!-- range-chip elements injected by StepNavigator -->
+        </div>
+
+        <div id="step-nav-description">Description</div>
+        <div id="step-nav-explanation">Explanation text goes here.</div>
+
+        <div id="step-nav-footer">
+            <button id="step-nav-edit">Edit</button>
+
+            <div id="step-nav-pagination">
+                <button class="step-nav-arrow" id="step-nav-prev" disabled>&#8592;</button>
+                <span   id="step-nav-counter">1/8</span>
+                <button class="step-nav-arrow" id="step-nav-next">&#8594;</button>
+            </div>
+        </div>
     </div>
 
 
@@ -90,6 +119,7 @@
     <script src="modules/officeInit.js"></script>
     <script src="modules/worksheetContext.js"></script>
     <script src="modules/llmClient.js"></script>
+    <script src="modules/stepNavigator.js"></script>
     <script src="modules/executionEngine.js"></script>
     <script src="modules/chatManager.js"></script>
     <script src="modules/app.js"></script>

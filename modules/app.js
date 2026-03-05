@@ -10,6 +10,7 @@
         // PLACEHOLDER: show a friendly "unsupported host" message in the UI
     }
 
+    StepNavigator.init();
     ChatManager.init();
 
     console.log('[App] Ready.');
