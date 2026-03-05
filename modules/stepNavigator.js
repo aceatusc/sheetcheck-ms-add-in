@@ -161,7 +161,7 @@ const StepNavigator = (() => {
             _btnNext.textContent = '…';
             _btnNext.disabled    = true;
         } else if (isLatestComplete && awaitingAdvance) {
-            _btnNext.textContent = isLast ? 'Done ✓' : 'Next →';
+            _btnNext.textContent = isLast ? '✓' : '→';
             _btnNext.disabled    = false;
         } else {
             // Reviewing a past step — card navigation only
