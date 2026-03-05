@@ -1,7 +1,7 @@
 /**
  * executionEngine.js
- * Runs code segments sequentially with pauses between each.
- * Updates the execution log panel, progress bar, and StepNavigator overlay.
+ * Runs code segments one at a time, pausing between each for the user
+ * to review the change and click → in the StepNavigator overlay.
  */
 const ExecutionEngine = (() => {
 
@@ -13,7 +13,7 @@ const ExecutionEngine = (() => {
     const _panel         = document.getElementById('execution-panel');
 
     /**
-     * Run an array of CodeSegments in order, pausing between each.
+     * Run segments sequentially, waiting for user confirmation after each one.
      * @param {CodeSegment[]} segments
      */
     async function run(segments) {
@@ -24,7 +24,6 @@ const ExecutionEngine = (() => {
         _progressStrip.classList.add('visible');
         _log('info', `Starting execution: ${segments.length} segment(s)`);
 
-        // Hand segment list to navigator so it can render labels etc.
         StepNavigator.loadSegments(segments);
 
         let completed = 0;
@@ -35,7 +34,7 @@ const ExecutionEngine = (() => {
             _updateProgress(completed, segments.length);
             _log('info', `▶ ${seg.description}`);
 
-            // Show overlay in running state while code executes
+            // Show overlay in "running" state while code executes
             StepNavigator.markRunning(i);
 
             try {
@@ -46,36 +45,25 @@ const ExecutionEngine = (() => {
                 _updateProgress(completed, segments.length);
                 _log('ok', `✓ ${seg.description}`);
 
-                // Switch overlay to completed state and focus ranges
-                await StepNavigator.markComplete(i);
-
             } catch (err) {
                 _log('err', `✗ ${seg.description}: ${err.message}`);
                 _setStatus('error');
                 console.error('[ExecutionEngine] Segment error:', err);
-                break; // PLACEHOLDER: add configurable error-recovery strategy
+                break;
             }
 
-            // Pause so user can observe the change
-            if (seg.pauseAfterMs > 0) {
-                await _sleep(seg.pauseAfterMs);
-            }
+            // Hand control to the user — resolves only when they click →
+            await StepNavigator.waitForNext(i);
         }
 
         if (completed === segments.length) {
             _setStatus('success');
             _log('ok', 'All segments complete.');
-            // Navigator stays open so user can review steps freely
         }
     }
 
-    // --- Private helpers ---
+    // ── Private helpers ───────────────────────────────────────────────────────
 
-    function _sleep(ms) {
-        return new Promise(resolve => setTimeout(resolve, ms));
-    }
-
-    /** Wrap a code string in an async function. */
     function _makeAsyncFn(code) {
         // PLACEHOLDER: add input sanitization / CSP-safe alternative
         return new (Object.getPrototypeOf(async function () {}).constructor)(code);
