@@ -127,7 +127,7 @@ const LLMClient = (() => {
                             ['=IFERROR((D6-D5)/D5, "")'],
                             ['=IFERROR((D7-D6)/D6, "")'],
                         ];
-                        sheet.getRange("E3:E7").numberFormat = [["0.0%"]];
+                        sheet.getRange("E3:E7").numberFormat = [["0.0%"],["0.0%"],["0.0%"],["0.0%"],["0.0%"]];
                         await ctx.sync();
                     });
                 `,
@@ -140,8 +140,12 @@ const LLMClient = (() => {
                     await Excel.run(async (ctx) => {
                         const sheet = ctx.workbook.worksheets.getActiveWorksheet();
                         sheet.getRange("B2:D7").numberFormat = [
-                            ["$#,##0"], ["$#,##0"], ["$#,##0"],
-                            ["$#,##0"], ["$#,##0"], ["$#,##0"],
+                            ["$#,##0", "$#,##0", "$#,##0"],
+                            ["$#,##0", "$#,##0", "$#,##0"],
+                            ["$#,##0", "$#,##0", "$#,##0"],
+                            ["$#,##0", "$#,##0", "$#,##0"],
+                            ["$#,##0", "$#,##0", "$#,##0"],
+                            ["$#,##0", "$#,##0", "$#,##0"],
                         ];
                         await ctx.sync();
                     });
