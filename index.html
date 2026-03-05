@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8" />
+    <title>Minimal Add-in</title>
+    <script src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js"></script>
+</head>
+<body>
+    <div style="padding: 20px;">
+        <h1>Hello Excel!</h1>
+        <button id="run-button">Write to Cell</button>
+    </div>
+
+    <script>
+        Office.onReady((info) => {
+            if (info.host === Office.HostType.Excel) {
+                document.getElementById("run-button").onclick = run;
+            }
+        });
+
+        async function run() {
+            try {
+                await Excel.run(async (context) => {
+                    // Reference the active sheet and cell A1
+                    const sheet = context.workbook.worksheets.getActiveWorksheet();
+                    const range = sheet.getRange("A1");
+                    
+                    // Set value and formatting
+                    range.values = [["Hello World!"]];
+                    range.format.fill.color = "yellow";
+
+                    // Sync the state back to Excel
+                    await context.sync();
+                });
+            } catch (error) {
+                console.error(error);
+            }
+        }
+    </script>
+</body>
+</html>
