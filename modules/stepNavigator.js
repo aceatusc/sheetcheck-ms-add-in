@@ -39,12 +39,10 @@ const StepNavigator = (() => {
         _btnNext.addEventListener('click', _onNext);
         _btnClose.addEventListener('click', dismiss);
         _btnEdit.addEventListener('click', () => {
-            // PLACEHOLDER: open an edit dialog for the current segment's code
             console.log('[StepNavigator] Edit clicked for segment:', _segments[_currentIndex]?.id);
         });
     }
 
-    /** Load the full segment list before execution starts. */
     function loadSegments(segments) {
         _segments       = segments;
         _completedUpTo  = -1;
@@ -53,7 +51,10 @@ const StepNavigator = (() => {
         _advanceResolve = null;
     }
 
-    /** Show the card in blue "running" state while a segment's code executes. */
+    /**
+     * Show card in blue "running" state while segment code is executing.
+     * Does NOT focus any ranges — nothing has changed in the sheet yet.
+     */
     function markRunning(index) {
         _isRunning    = true;
         _currentIndex = index;
@@ -62,7 +63,8 @@ const StepNavigator = (() => {
     }
 
     /**
-     * Switch to green "done" state and block until the user clicks Next.
+     * Called after a segment finishes. Switches card to green, focuses the
+     * affected ranges in Excel, then blocks until user clicks Next.
      * @returns {Promise<void>}
      */
     async function waitForNext(index) {
@@ -72,16 +74,18 @@ const StepNavigator = (() => {
         _overlay.classList.remove('running');
         _overlay.classList.add('visible');
 
-        // !! Set the resolve BEFORE rendering so _render sees awaitingAdvance=true
+        // Set resolve BEFORE _render so the button renders as enabled
         const promise = new Promise(resolve => { _advanceResolve = resolve; });
 
         _render();
+
+        // Focus AFTER code has run — this is the right moment to highlight
         await _focusRanges(index);
 
         return promise;
     }
 
-    /** Hide the card. Does NOT resolve a pending waitForNext. */
+    /** Hide the card. Does NOT resolve or cancel pending execution. */
     function dismiss() {
         _overlay.classList.remove('visible', 'running');
     }
@@ -92,12 +96,12 @@ const StepNavigator = (() => {
         if (_isRunning) return;
 
         if (_currentIndex < _completedUpTo) {
-            // Reviewing an earlier step — just move the card forward
+            // Reviewing an earlier step — navigate card forward only
             _navigate(_currentIndex + 1);
             return;
         }
 
-        // On the latest completed step — advance execution
+        // On the latest completed step — unblock the engine
         if (_advanceResolve) {
             const resolve   = _advanceResolve;
             _advanceResolve = null;
@@ -105,7 +109,7 @@ const StepNavigator = (() => {
             const isLast = _currentIndex >= _segments.length - 1;
             if (isLast) dismiss();
 
-            resolve(); // unblocks executionEngine
+            resolve();
         }
     }
 
@@ -114,6 +118,10 @@ const StepNavigator = (() => {
         _navigate(_currentIndex - 1);
     }
 
+    /**
+     * Move the card to any already-completed step.
+     * Focuses that step's ranges in Excel so the user can see what it did.
+     */
     async function _navigate(targetIndex) {
         if (targetIndex < 0 || targetIndex > _completedUpTo) return;
         _currentIndex = targetIndex;
@@ -131,12 +139,10 @@ const StepNavigator = (() => {
         const isLatestComplete = idx === _completedUpTo;
         const awaitingAdvance  = _advanceResolve !== null;
 
-        // Badge
         _badge.textContent = _isRunning
             ? `Running step ${idx + 1} of ${total}…`
             : `Step ${idx + 1} of ${total}`;
 
-        // Range chips
         _ranges.innerHTML = '';
         (seg.sheet_context || []).forEach(addr => {
             const chip = document.createElement('span');
@@ -145,31 +151,30 @@ const StepNavigator = (() => {
             _ranges.appendChild(chip);
         });
 
-        // Text
         _desc.textContent = seg.description;
         _expl.textContent = seg.explanation || '';
-
-        // Counter
         _counter.textContent = `${idx + 1}/${total}`;
 
-        // ← disabled while running or on first step
         _btnPrev.disabled = _isRunning || idx <= 0;
 
-        // → behaviour:
         if (_isRunning) {
             _btnNext.textContent = '…';
             _btnNext.disabled    = true;
         } else if (isLatestComplete && awaitingAdvance) {
-            // Ready to advance execution
             _btnNext.textContent = isLast ? 'Done ✓' : 'Next →';
             _btnNext.disabled    = false;
         } else {
-            // Reviewing a past step — just a card navigation arrow
+            // Reviewing a past step — card navigation only
             _btnNext.textContent = '→';
             _btnNext.disabled    = idx >= _completedUpTo;
         }
     }
 
+    /**
+     * Select the sheet_context ranges in Excel.
+     * Called only AFTER a segment's code has run (in waitForNext)
+     * or when the user navigates between completed steps.
+     */
     async function _focusRanges(index) {
         const contexts = _segments[index]?.sheet_context;
         if (!contexts || contexts.length === 0) return;
