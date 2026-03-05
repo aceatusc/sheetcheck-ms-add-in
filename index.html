@@ -1,41 +1,98 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
     <meta charset="UTF-8" />
-    <title>Minimal Add-in</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>SheetCheck</title>
+
     <script src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js"></script>
+
+    <!-- Styles -->
+    <link rel="stylesheet" href="styles/theme.css" />
+    <link rel="stylesheet" href="styles/chat.css" />
+    <link rel="stylesheet" href="styles/execution.css" />
 </head>
+
 <body>
-    <div style="padding: 20px;">
-        <h1>Hello Excel!</h1>
-        <button id="run-button">Write to Cell</button>
+
+    <!-- =============================================
+         Component: Chat Panel
+         ============================================= -->
+    <div id="chat-panel">
+
+        <div id="chat-header">
+            <div class="logo-dot"></div>
+            <h1>SheetCheck</h1>
+            <span class="model-badge">Mistral / GPT / Claude</span>
+        </div>
+
+        <div id="message-feed">
+            <div class="message agent" id="welcome-message">
+                <div class="message-bubble">
+                    👋 Hi! I can help you modify your spreadsheet using natural language.
+                    Try describing a change you'd like to make.
+                </div>
+                <span class="message-meta">Assistant</span>
+            </div>
+
+            <div id="typing-indicator">
+                <div class="typing-dot"></div>
+                <div class="typing-dot"></div>
+                <div class="typing-dot"></div>
+            </div>
+        </div>
+
+        <div id="input-bar">
+            <div id="context-strip">
+                <span class="context-chip active" data-context="selection">Selection</span>
+                <span class="context-chip"        data-context="sheet">Sheet Data</span>
+                <span class="context-chip"        data-context="named-ranges">Named Ranges</span>
+                <!-- PLACEHOLDER: more chips added dynamically -->
+            </div>
+
+            <div id="input-row">
+                <textarea
+                    id="chat-input"
+                    rows="1"
+                    placeholder="Ask me to change your spreadsheet…"
+                ></textarea>
+                <button id="send-button" disabled>
+                    <svg viewBox="0 0 24 24"><path d="M2 21l21-9L2 3v7l15 2-15 2z"/></svg>
+                </button>
+            </div>
+        </div>
+
     </div>
 
-    <script>
-        Office.onReady((info) => {
-            if (info.host === Office.HostType.Excel) {
-                document.getElementById("run-button").onclick = run;
-            }
-        });
 
-        async function run() {
-            try {
-                await Excel.run(async (context) => {
-                    // Reference the active sheet and cell A1
-                    const sheet = context.workbook.worksheets.getActiveWorksheet();
-                    const range = sheet.getRange("A1");
-                    
-                    // Set value and formatting
-                    range.values = [["Hello World!"]];
-                    range.format.fill.color = "yellow";
+    <!-- =============================================
+         Component: Execution Panel
+         ============================================= -->
+    <div id="execution-panel">
+        <div id="execution-header">
+            <div id="execution-status-dot"></div>
+            <span>Execution Log</span>
+            <span id="execution-toggle-icon">▲</span>
+        </div>
+        <div id="segment-progress">
+            <div id="segment-bar-track">
+                <div id="segment-bar-fill"></div>
+            </div>
+            <span id="segment-label">0 / 0</span>
+        </div>
+        <div id="execution-log">
+            <!-- ExecutionEngine appends log-line divs here -->
+        </div>
+    </div>
 
-                    // Sync the state back to Excel
-                    await context.sync();
-                });
-            } catch (error) {
-                console.error(error);
-            }
-        }
-    </script>
+
+    <!-- Modules — load in dependency order -->
+    <script src="modules/officeInit.js"></script>
+    <script src="modules/worksheetContext.js"></script>
+    <script src="modules/llmClient.js"></script>
+    <script src="modules/executionEngine.js"></script>
+    <script src="modules/chatManager.js"></script>
+    <script src="modules/app.js"></script>
+
 </body>
 </html>

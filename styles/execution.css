@@ -1,0 +1,106 @@
+/* =============================================
+   Execution Panel Styles
+   ============================================= */
+
+#execution-panel {
+    border-top: 1px solid var(--color-border);
+    background: var(--color-bg);
+    max-height: 0;
+    overflow: hidden;
+    transition: max-height 0.3s ease;
+}
+
+#execution-panel.open { max-height: 180px; }
+
+#execution-header {
+    padding: 6px 16px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+    user-select: none;
+    border-bottom: 1px solid transparent;
+    transition: border-color var(--transition);
+}
+
+#execution-panel.open #execution-header {
+    border-bottom-color: var(--color-border);
+}
+
+#execution-header span {
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--color-text-muted);
+}
+
+#execution-status-dot {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: var(--color-text-muted);
+    transition: background var(--transition);
+}
+
+#execution-status-dot.running { background: var(--color-warning); animation: pulse 1s infinite; }
+#execution-status-dot.success { background: var(--color-success); }
+#execution-status-dot.error   { background: var(--color-error); }
+
+#execution-toggle-icon {
+    margin-left: auto;
+    font-size: 10px;
+    color: var(--color-text-muted);
+}
+
+/* --- Log Lines --- */
+#execution-log {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--color-text-muted);
+    padding: 10px 16px;
+    overflow-y: auto;
+    max-height: 140px;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+}
+
+.log-line { display: flex; gap: 8px; }
+.log-line .log-time  { color: var(--color-text-muted); opacity: 0.5; flex-shrink: 0; }
+.log-line.log-ok  .log-msg { color: var(--color-success); }
+.log-line.log-err .log-msg { color: var(--color-error); }
+.log-line.log-info .log-msg { color: var(--color-text-muted); }
+
+/* --- Segment Progress Bar --- */
+#segment-progress {
+    display: none;
+    padding: 6px 16px;
+    gap: 6px;
+    align-items: center;
+}
+
+#segment-progress.visible { display: flex; }
+
+#segment-bar-track {
+    flex: 1;
+    height: 3px;
+    background: var(--color-border);
+    border-radius: 99px;
+    overflow: hidden;
+}
+
+#segment-bar-fill {
+    height: 100%;
+    background: var(--color-accent);
+    border-radius: 99px;
+    width: 0%;
+    transition: width 0.4s ease;
+}
+
+#segment-label {
+    font-size: 10px;
+    color: var(--color-text-muted);
+    flex-shrink: 0;
+    min-width: 60px;
+    text-align: right;
+}
