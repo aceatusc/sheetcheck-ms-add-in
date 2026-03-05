@@ -2,7 +2,7 @@
 <OfficeApp xmlns="http://schemas.microsoft.com/office/appforoffice/1.1" 
            xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" 
            xsi:type="TaskPaneApp">
-  <Id>6366037e-1234-4321-a123-445566778899</Id>
+  <Id>6366037e-1234-4322-a123-445566778800</Id>
   <Version>1.0.0.0</Version>
   <ProviderName>MyCompany</ProviderName>
   <DefaultLocale>en-US</DefaultLocale>
