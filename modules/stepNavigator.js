@@ -1,17 +1,15 @@
 /**
  * stepNavigator.js
  *
- * Manages the floating step-by-step explanation overlay.
- * After each segment runs, shows a card and WAITS for the user
- * to click → (or "Done" on the last step) before execution continues.
+ * Shows a floating card after each segment runs and waits for the user
+ * to click "Next" before execution continues.
  *
  * Public API:
  *   StepNavigator.init()
- *   StepNavigator.loadSegments(segments)      — call once before execution starts
- *   StepNavigator.markRunning(index)          — call while a segment is executing
- *   StepNavigator.waitForNext(index)          — call after segment completes;
- *                                               resolves when user clicks →
- *   StepNavigator.dismiss()
+ *   StepNavigator.loadSegments(segments)   — call once before execution starts
+ *   StepNavigator.markRunning(index)       — call while a segment is executing
+ *   StepNavigator.waitForNext(index)       — resolves when user clicks Next
+ *   StepNavigator.dismiss()               — hides card without affecting execution
  */
 const StepNavigator = (() => {
 
@@ -28,13 +26,11 @@ const StepNavigator = (() => {
     const _btnClose = document.getElementById('step-nav-close');
 
     // ── State ─────────────────────────────────────────────────────────────────
-    let _segments      = [];
-    let _completedUpTo = -1;   // highest index fully run
-    let _currentIndex  = 0;    // step currently shown in the card
-    let _isRunning     = false;
-
-    // Resolve fn for the current waitForNext() promise
-    let _advanceResolve = null;
+    let _segments       = [];
+    let _completedUpTo  = -1;  // highest index fully executed
+    let _currentIndex   = 0;   // step shown in the card right now
+    let _isRunning      = false;
+    let _advanceResolve = null; // set while waiting for user to click Next
 
     // ── Public ────────────────────────────────────────────────────────────────
 
@@ -48,79 +44,76 @@ const StepNavigator = (() => {
         });
     }
 
-    /** Load segment list before execution starts. */
+    /** Load the full segment list before execution starts. */
     function loadSegments(segments) {
-        _segments      = segments;
-        _completedUpTo = -1;
-        _currentIndex  = 0;
-        _isRunning     = false;
+        _segments       = segments;
+        _completedUpTo  = -1;
+        _currentIndex   = 0;
+        _isRunning      = false;
         _advanceResolve = null;
     }
 
-    /** Show the card in "running" (blue pulse) state while code executes. */
+    /** Show the card in blue "running" state while a segment's code executes. */
     function markRunning(index) {
         _isRunning    = true;
         _currentIndex = index;
+        _overlay.classList.add('running', 'visible');
         _render();
-        _overlay.classList.add('running');
-        _overlay.classList.add('visible');
     }
 
     /**
-     * Switch card to "complete" (green) state, focus ranges, then
-     * block until the user clicks →.
-     * @returns {Promise<void>} resolves when user is ready for next step
+     * Switch to green "done" state and block until the user clicks Next.
+     * @returns {Promise<void>}
      */
     async function waitForNext(index) {
         _isRunning     = false;
         _completedUpTo = Math.max(_completedUpTo, index);
         _currentIndex  = index;
-
         _overlay.classList.remove('running');
-        _render();
         _overlay.classList.add('visible');
 
+        // !! Set the resolve BEFORE rendering so _render sees awaitingAdvance=true
+        const promise = new Promise(resolve => { _advanceResolve = resolve; });
+
+        _render();
         await _focusRanges(index);
 
-        // If this is the last step, → resolves immediately after user clicks Done
-        return new Promise(resolve => {
-            _advanceResolve = resolve;
-        });
+        return promise;
     }
 
-    /** Hide the overlay and resolve any pending wait (e.g. user closed mid-run). */
+    /** Hide the card. Does NOT resolve a pending waitForNext. */
     function dismiss() {
         _overlay.classList.remove('visible', 'running');
-        if (_advanceResolve) {
-            _advanceResolve();
-            _advanceResolve = null;
-        }
     }
 
     // ── Private ───────────────────────────────────────────────────────────────
 
     function _onNext() {
-        const isLastStep = _currentIndex >= _segments.length - 1;
+        if (_isRunning) return;
 
-        if (_currentIndex === _completedUpTo) {
-            // We're on the latest completed step → advance execution
-            if (_advanceResolve) {
-                const res = _advanceResolve;
-                _advanceResolve = null;
-                if (isLastStep) dismiss();
-                res();
-            }
-        } else {
-            // We're reviewing an earlier step → just navigate forward
+        if (_currentIndex < _completedUpTo) {
+            // Reviewing an earlier step — just move the card forward
             _navigate(_currentIndex + 1);
+            return;
+        }
+
+        // On the latest completed step — advance execution
+        if (_advanceResolve) {
+            const resolve   = _advanceResolve;
+            _advanceResolve = null;
+
+            const isLast = _currentIndex >= _segments.length - 1;
+            if (isLast) dismiss();
+
+            resolve(); // unblocks executionEngine
         }
     }
 
     function _onPrev() {
-        if (_currentIndex > 0) _navigate(_currentIndex - 1);
+        if (_isRunning || _currentIndex <= 0) return;
+        _navigate(_currentIndex - 1);
     }
 
-    /** Navigate card to a different already-completed step (no execution effect). */
     async function _navigate(targetIndex) {
         if (targetIndex < 0 || targetIndex > _completedUpTo) return;
         _currentIndex = targetIndex;
@@ -128,16 +121,15 @@ const StepNavigator = (() => {
         await _focusRanges(targetIndex);
     }
 
-    /** Re-render card content for _currentIndex. */
     function _render() {
         const seg   = _segments[_currentIndex];
         const total = _segments.length;
         const idx   = _currentIndex;
         if (!seg) return;
 
-        const isLastStep     = idx >= total - 1;
-        const isLatestStep   = idx === _completedUpTo;
-        const awaitingAdvance = !!_advanceResolve;
+        const isLast           = idx >= total - 1;
+        const isLatestComplete = idx === _completedUpTo;
+        const awaitingAdvance  = _advanceResolve !== null;
 
         // Badge
         _badge.textContent = _isRunning
@@ -160,32 +152,27 @@ const StepNavigator = (() => {
         // Counter
         _counter.textContent = `${idx + 1}/${total}`;
 
-        // ← always disabled on first step; disabled while running
-        _btnPrev.disabled = idx <= 0 || _isRunning;
+        // ← disabled while running or on first step
+        _btnPrev.disabled = _isRunning || idx <= 0;
 
-        // → label and state:
-        //   • "Running…" — code is executing
-        //   • "Done"     — last step, waiting for user confirm
-        //   • "Next →"   — more steps remaining, waiting for user
-        //   • "→"        — reviewing an earlier step (just navigates)
+        // → behaviour:
         if (_isRunning) {
             _btnNext.textContent = '…';
             _btnNext.disabled    = true;
-        } else if (isLatestStep && awaitingAdvance) {
-            _btnNext.textContent = isLastStep ? 'Done ✓' : 'Next →';
+        } else if (isLatestComplete && awaitingAdvance) {
+            // Ready to advance execution
+            _btnNext.textContent = isLast ? 'Done ✓' : 'Next →';
             _btnNext.disabled    = false;
         } else {
+            // Reviewing a past step — just a card navigation arrow
             _btnNext.textContent = '→';
             _btnNext.disabled    = idx >= _completedUpTo;
         }
     }
 
-    /** Select the sheet ranges for this step in Excel so it scrolls + highlights. */
     async function _focusRanges(index) {
-        const seg      = _segments[index];
-        const contexts = seg?.sheet_context;
+        const contexts = _segments[index]?.sheet_context;
         if (!contexts || contexts.length === 0) return;
-
         try {
             await Excel.run(async (ctx) => {
                 const sheet = ctx.workbook.worksheets.getActiveWorksheet();
