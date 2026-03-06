@@ -10,7 +10,7 @@ const ChatManager = (() => {
     const _input        = document.getElementById('chat-input');
     const _sendBtn      = document.getElementById('send-button');
     const _typingEl     = document.getElementById('typing-indicator');
-    const _contextChips = document.querySelectorAll('.context-chip');
+    // const _contextChips = document.querySelectorAll('.context-chip');
 
     let _activeContexts = new Set(['selection']);
     let _isBusy         = false;
@@ -34,18 +34,18 @@ const ChatManager = (() => {
         _sendBtn.addEventListener('click', _handleSend);
 
         // Context chip toggles
-        _contextChips.forEach(chip => {
-            chip.addEventListener('click', () => {
-                const ctx = chip.dataset.context;
-                if (_activeContexts.has(ctx)) {
-                    _activeContexts.delete(ctx);
-                    chip.classList.remove('active');
-                } else {
-                    _activeContexts.add(ctx);
-                    chip.classList.add('active');
-                }
-            });
-        });
+        // _contextChips.forEach(chip => {
+        //     chip.addEventListener('click', () => {
+        //         const ctx = chip.dataset.context;
+        //         if (_activeContexts.has(ctx)) {
+        //             _activeContexts.delete(ctx);
+        //             chip.classList.remove('active');
+        //         } else {
+        //             _activeContexts.add(ctx);
+        //             chip.classList.add('active');
+        //         }
+        //     });
+        // });
 
         // Execution panel collapse toggle
         document.getElementById('execution-header').addEventListener('click', () => {
