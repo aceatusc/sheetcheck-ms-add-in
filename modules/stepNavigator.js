@@ -22,7 +22,7 @@ const StepNavigator = (() => {
     const _counter  = document.getElementById('step-nav-counter');
     const _btnPrev  = document.getElementById('step-nav-prev');
     const _btnNext  = document.getElementById('step-nav-next');
-    const _btnEdit  = document.getElementById('step-nav-edit');
+    // const _btnEdit  = document.getElementById('step-nav-edit');
     const _btnClose = document.getElementById('step-nav-close');
 
     // ── State ─────────────────────────────────────────────────────────────────
@@ -38,9 +38,9 @@ const StepNavigator = (() => {
         _btnPrev.addEventListener('click', _onPrev);
         _btnNext.addEventListener('click', _onNext);
         _btnClose.addEventListener('click', dismiss);
-        _btnEdit.addEventListener('click', () => {
-            console.log('[StepNavigator] Edit clicked for segment:', _segments[_currentIndex]?.id);
-        });
+        // _btnEdit.addEventListener('click', () => {
+        //     console.log('[StepNavigator] Edit clicked for segment:', _segments[_currentIndex]?.id);
+        // });
     }
 
     function loadSegments(segments) {
