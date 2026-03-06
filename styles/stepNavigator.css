@@ -1,0 +1,173 @@
+/* =============================================
+   Step Navigator Overlay
+   ============================================= */
+
+#step-navigator {
+    position: fixed;
+    bottom: 180px;
+    left: 50%;
+    transform: translateX(-50%) translateY(-20px);
+    width: calc(100% - 32px);
+    max-width: 420px;
+    background: #1e7a4a;
+    border-radius: 18px;
+    padding: 20px 20px 16px;
+    box-shadow: 0 8px 40px rgba(0,0,0,0.45), 0 2px 8px rgba(0,0,0,0.3);
+    z-index: 1000;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.25s ease, transform 0.25s ease;
+}
+
+#step-navigator.visible {
+    opacity: 1;
+    pointer-events: all;
+    transform: translateX(-50%) translateY(0);
+}
+
+/* Arrow pointing up toward the sheet area */
+#step-navigator::before {
+    content: '';
+    position: absolute;
+    bottom: -10px;
+    left: 50%;
+    transform: translateX(-50%);
+    border-left: 10px solid transparent;
+    border-right: 10px solid transparent;
+    border-top: 10px solid #1e7a4a;
+}
+
+/* Step label badge */
+#step-nav-badge {
+    display: inline-block;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    background: rgba(255,255,255,0.18);
+    color: #fff;
+    padding: 2px 9px;
+    border-radius: 99px;
+    margin-bottom: 10px;
+}
+
+/* Range chips */
+#step-nav-ranges {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+    margin-bottom: 10px;
+}
+
+.range-chip {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    background: rgba(255,255,255,0.2);
+    color: #fff;
+    padding: 2px 8px;
+    border-radius: 5px;
+    letter-spacing: 0.04em;
+}
+
+/* Description (bold) */
+#step-nav-description {
+    font-size: 13px;
+    font-weight: 700;
+    color: #fff;
+    margin-bottom: 6px;
+    line-height: 1.35;
+}
+
+/* Explanation body */
+#step-nav-explanation {
+    font-size: 12px;
+    color: rgba(255,255,255,0.88);
+    line-height: 1.55;
+    margin-bottom: 16px;
+}
+
+/* Footer: edit button + pagination + arrows */
+#step-nav-footer {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+#step-nav-edit {
+    background: #fff;
+    color: #1e7a4a;
+    border: none;
+    border-radius: 99px;
+    font-size: 12px;
+    font-weight: 700;
+    padding: 6px 16px;
+    cursor: pointer;
+    transition: opacity 0.15s;
+    flex-shrink: 0;
+}
+
+#step-nav-edit:hover { opacity: 0.85; }
+
+#step-nav-pagination {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+#step-nav-counter {
+    font-size: 13px;
+    font-weight: 600;
+    color: #fff;
+    min-width: 36px;
+    text-align: center;
+}
+
+.step-nav-arrow {
+    width: 30px; height: 30px;
+    border-radius: 50%;
+    background: rgba(255,255,255,0.18);
+    border: none;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.15s;
+    color: #fff;
+    font-size: 14px;
+    line-height: 1;
+}
+
+.step-nav-arrow:hover    { background: rgba(255,255,255,0.32); }
+.step-nav-arrow:disabled { opacity: 0.3; cursor: not-allowed; }
+
+/* Close / dismiss button */
+#step-nav-close {
+    position: absolute;
+    top: 10px; right: 12px;
+    background: none;
+    border: none;
+    color: rgba(255,255,255,0.55);
+    font-size: 16px;
+    cursor: pointer;
+    line-height: 1;
+    padding: 2px 4px;
+    transition: color 0.15s;
+}
+
+#step-nav-close:hover { color: #fff; }
+
+/* Running state — pulsing border */
+#step-navigator.running {
+    background: #1e5a7a;
+    animation: navPulse 1.2s infinite;
+}
+
+#step-navigator.running::before {
+    border-bottom-color: #1e5a7a;
+}
+
+@keyframes navPulse {
+    0%, 100% { box-shadow: 0 8px 40px rgba(0,0,0,0.45), 0 0 0 0 rgba(79,142,247,0.4); }
+    50%       { box-shadow: 0 8px 40px rgba(0,0,0,0.45), 0 0 0 8px rgba(79,142,247,0); }
+}
