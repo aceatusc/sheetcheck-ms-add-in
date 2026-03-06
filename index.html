@@ -45,11 +45,11 @@
         </div>
 
         <div id="input-bar">
-            <!-- <div id="context-strip">
+            <div id="context-strip">
                 <span class="context-chip active" data-context="selection">Selection</span>
                 <span class="context-chip"        data-context="sheet">Sheet Data</span>
                 <span class="context-chip"        data-context="named-ranges">Named Ranges</span>
-            </div> -->
+            </div>
 
             <div id="input-row">
                 <textarea
@@ -57,7 +57,7 @@
                     rows="1"
                     placeholder="Ask me to change your spreadsheet…"
                 ></textarea>
-                <button id="send-button">
+                <button id="send-button" disabled>
                     <svg viewBox="0 0 24 24"><path d="M2 21l21-9L2 3v7l15 2-15 2z"/></svg>
                 </button>
             </div>
@@ -83,7 +83,7 @@
         <div id="step-nav-explanation">Explanation text goes here.</div>
 
         <div id="step-nav-footer">
-            <!-- <button id="step-nav-edit">Edit</button> --> 
+            <button id="step-nav-edit">Edit</button>
 
             <div id="step-nav-pagination">
                 <button class="step-nav-arrow" id="step-nav-prev" disabled>&#8592;</button>
