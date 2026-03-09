@@ -3,7 +3,7 @@
            xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" 
            xsi:type="TaskPaneApp">
   <Id>6366037e-1234-4322-a123-445566778800</Id>
-  <Version>1.0.0.1</Version>
+  <Version>1.1.0.0</Version>
   <ProviderName>USC ACE Lab - Sadra Sabouri</ProviderName>
   <DefaultLocale>en-US</DefaultLocale>
   <DisplayName DefaultValue="SheetCheck" />
