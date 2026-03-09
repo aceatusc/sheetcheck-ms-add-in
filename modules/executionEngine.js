@@ -46,7 +46,7 @@ const ExecutionEngine = (() => {
                 _log('ok', `✓ ${seg.description}`);
 
             } catch (err) {
-                _log('err', `✗ ${seg.description}: ${err.message}`);
+                _log('err', `✗ ${seg.description}: ${err.message} [${seg.code}]`);
                 _setStatus('error');
                 console.error('[ExecutionEngine] Segment error:', err);
                 break;
