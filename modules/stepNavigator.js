@@ -42,10 +42,11 @@ const StepNavigator = (() => {
     let _currentIndex   = 0;
     let _isRunning      = false;
     let _advanceResolve = null;
-    let _askHistory     = [];   // per-step ask history
-    let _selectedAltId  = null; // selected alternative for current step
+    let _askHistory     = [];
+    let _selectedAltId  = null;
     let _rubric         = { hard_requirements: [], soft_requirements: [] };
     let _activePanel    = null; // 'ask' | 'edit' | 'rubric' | null
+    let _isRubricGate   = false; // true while showing rubric-first screen before execution
 
     // ── Public ────────────────────────────────────────────────────────────────
 
@@ -55,13 +56,11 @@ const StepNavigator = (() => {
         _btnClose.addEventListener('click', dismiss);
         _btnAsk.addEventListener('click', () => _togglePanel('ask'));
         _btnEdit.addEventListener('click', () => _togglePanel('edit'));
-        _btnVerify.addEventListener('click', _onVerify);
 
         _askSend.addEventListener('click', _onAskSend);
         _askInput.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); _onAskSend(); }});
 
         _editSend.addEventListener('click', _onEditSend);
-
         _rubricAdd.addEventListener('click', _onRubricAdd);
     }
 
@@ -79,6 +78,84 @@ const StepNavigator = (() => {
     function setRubric(rubric) {
         _rubric = rubric;
         _renderRubric();
+    }
+
+    /**
+     * Show rubric gate screen — navigator visible, rubric panel open,
+     * Next button says "Start →". Resolves when user clicks Start.
+     * chatManager awaits this before calling ExecutionEngine.run().
+     */
+    function showRubricGate() {
+        _isRubricGate = true;
+        _overlay.classList.add('visible');
+        _chatPanel.classList.add('nav-active');
+        // Show rubric panel, hide step content
+        _overlay.classList.add('rubric-gate');
+        _togglePanel('rubric');
+        _renderRubric();
+        // Override Next button for gate
+        _btnNext.textContent = 'Start →';
+        _btnNext.disabled    = false;
+        _btnPrev.disabled    = true;
+        _btnEdit.disabled    = true;
+        _btnAsk.disabled     = true;
+        _badge.textContent   = 'Review Requirements';
+        _counter.textContent = '';
+        _ranges.innerHTML    = '';
+        _desc.textContent    = 'Review and edit the requirements below, then click Start to begin.';
+        _expl.textContent    = '';
+        _qaList.innerHTML    = '';
+
+        return new Promise(resolve => { _advanceResolve = resolve; });
+    }
+
+    /**
+     * Called by ExecutionEngine after all segments complete.
+     * Runs rubric verification and shows results in the open rubric panel.
+     */
+    async function showVerifyResults() {
+        _togglePanel('rubric');
+        _rubricVerifyPanel.innerHTML = '<span style="color:rgba(255,255,255,0.6);font-size:11px">Verifying requirements…</span>';
+        try {
+            const wsCtx = await WorksheetContext.gather(['sheet']);
+            const res   = await LLMClient.rubricVerify(_rubric, wsCtx);
+            _rubricVerifyPanel.innerHTML = '<div class="rubric-section-label" style="margin-top:8px">Verification Results</div>';
+            const allItems = [...(_rubric.hard_requirements||[]), ...(_rubric.soft_requirements||[])];
+            (res.results || []).forEach(r => {
+                const item = allItems.find(x => x.id === r.id);
+                const type = (_rubric.hard_requirements||[]).find(x => x.id === r.id) ? 'hard' : 'soft';
+                if (!item) return;
+                const row = document.createElement('div');
+                row.className = 'rubric-row';
+                const icon = r.met
+                    ? `<span class="rubric-check" title="${r.reasoning}">✓</span>`
+                    : `<span class="rubric-warn"  title="${r.reasoning}">⚠</span>`;
+                row.innerHTML = `
+                    <span class="rubric-badge rubric-${type}">${type==='hard'?'H':'S'}</span>
+                    <span class="rubric-label">${item.label}</span>
+                    ${icon}`;
+                // Clicking the icon expands reasoning
+                const iconEl = row.querySelector('.rubric-check, .rubric-warn');
+                if (iconEl) {
+                    iconEl.style.cursor = 'pointer';
+                    let open = false;
+                    iconEl.addEventListener('click', () => {
+                        open = !open;
+                        let detail = row.querySelector('.rubric-detail');
+                        if (!detail) {
+                            detail = document.createElement('div');
+                            detail.className = 'rubric-detail';
+                            row.appendChild(detail);
+                        }
+                        detail.textContent = r.reasoning + (r.references?.length ? ` (${r.references.join(', ')})` : '');
+                        detail.style.display = open ? 'block' : 'none';
+                    });
+                }
+                _rubricVerifyPanel.appendChild(row);
+            });
+        } catch(err) {
+            _rubricVerifyPanel.innerHTML = `<span style="color:var(--color-error);font-size:11px">${err.message}</span>`;
+        }
     }
 
     function markRunning(index) {
@@ -117,6 +194,19 @@ const StepNavigator = (() => {
 
     function _onNext() {
         if (_isRunning) return;
+
+        // Rubric gate: "Start →" click
+        if (_isRubricGate) {
+            _isRubricGate = false;
+            _overlay.classList.remove('rubric-gate');
+            _closePanel();
+            // Hide overlay momentarily — execution will re-show it via markRunning
+            _overlay.classList.remove('visible');
+            _chatPanel.classList.remove('nav-active');
+            if (_advanceResolve) { const r = _advanceResolve; _advanceResolve = null; r(); }
+            return;
+        }
+
         if (_currentIndex < _completedUpTo) { _navigate(_currentIndex + 1); return; }
         if (_advanceResolve) {
             const resolve = _advanceResolve;
@@ -242,24 +332,157 @@ const StepNavigator = (() => {
         const seg = _segments[_currentIndex];
         const affs = seg?.affordances || [];
         _affordances.innerHTML = '';
+        if (affs.length === 0) {
+            const empty = document.createElement('div');
+            empty.style.cssText = 'font-size:11px;color:rgba(255,255,255,0.4);padding:4px 0';
+            empty.textContent = 'No dynamic controls for this step.';
+            _affordances.appendChild(empty);
+            return;
+        }
         affs.forEach(aff => {
             const row = document.createElement('div');
             row.className = 'aff-row';
-            let control = '';
+            let control;
             if (aff.type === 'dropdown' && aff.options?.length) {
-                control = `<select class="aff-control" data-aff="${aff.id}">
-                    ${aff.options.map(o => `<option ${o===aff.value?'selected':''}>${o}</option>`).join('')}
-                </select>`;
+                control = document.createElement('select');
+                control.className = 'aff-control';
+                aff.options.forEach(o => {
+                    const opt = document.createElement('option');
+                    opt.value = o; opt.textContent = o;
+                    if (o === aff.value) opt.selected = true;
+                    control.appendChild(opt);
+                });
             } else if (aff.type === 'color') {
-                control = `<input type="color" class="aff-control aff-color" data-aff="${aff.id}" value="${aff.value}">`;
+                control = document.createElement('input');
+                control.type = 'color';
+                control.className = 'aff-control aff-color';
+                control.value = aff.value || '#000000';
             } else if (aff.type === 'number') {
-                control = `<input type="number" class="aff-control aff-number" data-aff="${aff.id}" value="${aff.value}">`;
+                control = document.createElement('input');
+                control.type = 'number';
+                control.className = 'aff-control aff-number';
+                control.value = aff.value || '0';
             } else if (aff.type === 'toggle') {
-                control = `<input type="checkbox" class="aff-control" data-aff="${aff.id}" ${aff.value==='true'?'checked':''}>`;
+                control = document.createElement('input');
+                control.type = 'checkbox';
+                control.className = 'aff-control';
+                control.checked = aff.value === 'true';
+            } else {
+                control = document.createElement('input');
+                control.type = 'text';
+                control.className = 'aff-control aff-number';
+                control.value = aff.value || '';
             }
-            row.innerHTML = `<span class="aff-label">${aff.label}</span>${control}`;
+            control.dataset.affId = aff.id;
+
+            // Live apply: re-run the current segment's code with the updated affordance value
+            control.addEventListener('change', () => {
+                aff.value = control.type === 'checkbox' ? String(control.checked) : control.value;
+                _applyAffordance(seg, aff);
+            });
+
+            const label = document.createElement('span');
+            label.className = 'aff-label';
+            label.textContent = aff.label;
+            row.appendChild(label);
+            row.appendChild(control);
             _affordances.appendChild(row);
         });
+    }
+
+    /**
+     * Inject the updated affordance value into the segment code (via placeholder comment
+     * or by re-running the code with a find-replace on the old value) and run it live.
+     */
+    async function _applyAffordance(seg, aff) {
+        // Replace the placeholder comment /* AFFORDANCE:aff-id */ with the value,
+        // or fall back to a simple string replace of the old default in the code.
+        let code = seg.code;
+        const placeholder = `/* AFFORDANCE:${aff.id} */`;
+        if (code.includes(placeholder)) {
+            code = code.replace(placeholder, JSON.stringify(aff.value));
+        } else {
+            // Heuristic: replace the first occurrence of the previous rendered value
+            // We store the live value on the aff object so we can swap it
+            // Build a snippet that directly applies based on affordance type
+            code = _buildAffordanceSnippet(seg, aff);
+        }
+        if (!code) return;
+        try {
+            const fn = new (Object.getPrototypeOf(async function(){}).constructor)(code);
+            await fn();
+        } catch(err) {
+            console.warn('[StepNavigator] affordance apply error:', err.message);
+        }
+    }
+
+    /**
+     * Build a minimal targeted Office.js snippet for common affordance patterns
+     * without needing to re-run the full segment code.
+     */
+    function _buildAffordanceSnippet(seg, aff) {
+        const ranges = (seg.sheet_context || []).join(', ') || 'A1';
+        const val    = aff.value;
+        const label  = aff.label.toLowerCase();
+
+        // Color affordances
+        if (aff.type === 'color') {
+            if (label.includes('background') || label.includes('fill')) {
+                return `await Excel.run(async (ctx) => { ctx.workbook.worksheets.getActiveWorksheet().getRange("${ranges}").format.fill.color = ${JSON.stringify(val)}; await ctx.sync(); });`;
+            }
+            if (label.includes('font') || label.includes('text')) {
+                return `await Excel.run(async (ctx) => { ctx.workbook.worksheets.getActiveWorksheet().getRange("${ranges}").format.font.color = ${JSON.stringify(val)}; await ctx.sync(); });`;
+            }
+            // Default: try fill
+            return `await Excel.run(async (ctx) => { ctx.workbook.worksheets.getActiveWorksheet().getRange("${ranges}").format.fill.color = ${JSON.stringify(val)}; await ctx.sync(); });`;
+        }
+
+        // Number format affordances
+        if (aff.type === 'dropdown' && (label.includes('format') || label.includes('number'))) {
+            const cells = (seg.sheet_context || ['A1'])[0];
+            return `await Excel.run(async (ctx) => {
+                const r = ctx.workbook.worksheets.getActiveWorksheet().getRange("${cells}");
+                r.load("rowCount,columnCount"); await ctx.sync();
+                const fmt = Array.from({length:r.rowCount}, () => Array.from({length:r.columnCount}, () => ${JSON.stringify(val)}));
+                r.numberFormat = fmt; await ctx.sync();
+            });`;
+        }
+
+        // Font size
+        if (aff.type === 'number' && label.includes('size')) {
+            return `await Excel.run(async (ctx) => { ctx.workbook.worksheets.getActiveWorksheet().getRange("${ranges}").format.font.size = ${Number(val)}; await ctx.sync(); });`;
+        }
+
+        // Threshold for conditional coloring — re-run full segment with updated code
+        if (aff.type === 'number' && label.includes('threshold')) {
+            // Patch the numeric literal in the segment code
+            return seg.code.replace(/>=\s*\d+/g, `>= ${Number(val)}`);
+        }
+
+        // Alignment
+        if (aff.type === 'dropdown' && label.includes('alignment')) {
+            return `await Excel.run(async (ctx) => { ctx.workbook.worksheets.getActiveWorksheet().getRange("${ranges}").format.horizontalAlignment = ${JSON.stringify(val)}; await ctx.sync(); });`;
+        }
+
+        // Label/text values — re-run full segment substituting first string literal
+        if (aff.type === 'dropdown' && label.includes('label')) {
+            return seg.code.replace(/"TOTAL"|"SUM"|"AVERAGE"|"GRAND TOTAL"/, JSON.stringify(val));
+        }
+
+        // Row color (even/odd stripe)
+        if (aff.type === 'color' && (label.includes('even') || label.includes('odd'))) {
+            const isEven = label.includes('even');
+            return `await Excel.run(async (ctx) => {
+                const s = ctx.workbook.worksheets.getActiveWorksheet();
+                for (let i = 2; i <= 7; i++) {
+                    if (i % 2 === ${isEven ? 0 : 1}) s.getRange("A"+i+":E"+i).format.fill.color = ${JSON.stringify(val)};
+                }
+                await ctx.sync();
+            });`;
+        }
+
+        // Fallback: re-run full segment code as-is (user changed something, attempt full re-apply)
+        return seg.code;
     }
 
     async function _onEditSend() {
@@ -340,24 +563,6 @@ const StepNavigator = (() => {
         const id = 's' + Date.now();
         _rubric.soft_requirements.push({ id, label, checked: false });
         _renderRubric();
-    }
-
-    async function _onVerify() {
-        _rubricVerifyPanel.innerHTML = '<span style="color:var(--color-text-muted);font-size:11px">Verifying…</span>';
-        _rubricPanel.style.display = 'block';
-        _activePanel = 'rubric';
-        try {
-            const wsCtx = await WorksheetContext.gather(['sheet']);
-            const res   = await LLMClient.rubricVerify(_rubric, wsCtx);
-            _rubricVerifyPanel.innerHTML = '';
-            (res.results || []).forEach(r => {
-                const item = [...(_rubric.hard_requirements), ...(_rubric.soft_requirements)].find(x => x.id === r.id);
-                const type = _rubric.hard_requirements.find(x => x.id === r.id) ? 'hard' : 'soft';
-                if (item) _appendRubricRow(item, type, r);
-            });
-        } catch(err) {
-            _rubricVerifyPanel.innerHTML = `<span style="color:var(--color-error)">${err.message}</span>`;
-        }
     }
 
     // ── Dependency Graph ──────────────────────────────────────────────────────
@@ -522,5 +727,5 @@ const StepNavigator = (() => {
         }
     }
 
-    return { init, loadSegments, setRubric, markRunning, waitForNext, dismiss };
+    return { init, loadSegments, setRubric, showRubricGate, showVerifyResults, markRunning, waitForNext, dismiss };
 })();

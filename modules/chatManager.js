@@ -24,6 +24,7 @@ const ChatManager = (() => {
             const panel = document.getElementById('execution-panel');
             const icon  = document.getElementById('execution-toggle-icon');
             panel.classList.toggle('open');
+            // ▲ = collapsed (click to expand), ▼ = expanded (click to collapse)
             icon.textContent = panel.classList.contains('open') ? '▼' : '▲';
         });
     }
@@ -39,19 +40,27 @@ const ChatManager = (() => {
         try {
             const wsCtx = await WorksheetContext.gather(['selection','sheet']);
 
-            // Scaffold rubric on first real request (not "test")
+            // 1. Scaffold rubric from user prompt
             let rubric = null;
-            if (text.toLowerCase() !== 'test') {
-                try {
-                    rubric = await LLMClient.rubricScaffold(text, wsCtx);
-                    StepNavigator.setRubric(rubric);
-                } catch(e) { console.warn('[ChatManager] rubric scaffold failed:', e.message); }
-            }
+            try {
+                rubric = await LLMClient.rubricScaffold(text, wsCtx);
+                StepNavigator.setRubric(rubric);
+            } catch(e) { console.warn('[ChatManager] rubric scaffold failed:', e.message); }
 
+            // 2. Generate code segments (rubric passed as optional context)
             const segments = await LLMClient.generateCode(text, wsCtx, rubric);
             _showTyping(false);
-            _appendMessage('agent', `Got it! Applying ${segments.length} step(s) to your sheet…`);
+
+            // 3. Load segments into navigator so graph renders in rubric gate
+            StepNavigator.loadSegments(segments);
+
+            // 4. Show rubric gate — await user clicking "Start →"
+            await StepNavigator.showRubricGate();
+
+            // 5. Execute
+            _appendMessage('agent', `Applying ${segments.length} step(s) to your sheet…`);
             await ExecutionEngine.run(segments);
+
         } catch(err) {
             _showTyping(false);
             _appendMessage('agent', `⚠️ ${err.message}`);

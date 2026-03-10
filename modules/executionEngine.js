@@ -19,12 +19,9 @@ const ExecutionEngine = (() => {
     async function run(segments) {
         if (!segments || segments.length === 0) return;
 
-        _openPanel();
         _setStatus('running');
         _progressStrip.classList.add('visible');
         _log('info', `Starting execution: ${segments.length} segment(s)`);
-
-        StepNavigator.loadSegments(segments);
 
         let completed = 0;
 
@@ -59,6 +56,8 @@ const ExecutionEngine = (() => {
         if (completed === segments.length) {
             _setStatus('success');
             _log('ok', 'All segments complete.');
+            // Trigger rubric verification automatically at the end
+            await StepNavigator.showVerifyResults();
         }
     }
 
