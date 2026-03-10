@@ -94,7 +94,7 @@ const StepNavigator = (() => {
         _togglePanel('rubric');
         _renderRubric();
         // Override Next button for gate
-        _btnNext.textContent = '→';
+        _btnNext.textContent = 'Start →';
         _btnNext.disabled    = false;
         _btnPrev.disabled    = true;
         _btnEdit.disabled    = true;
@@ -507,11 +507,17 @@ const StepNavigator = (() => {
 
     // ── Rubric feature ────────────────────────────────────────────────────────
 
+    // Drag state
+    let _dragId   = null;  // id of item being dragged
+    let _dragType = null;  // 'hard' | 'soft'
+
     function _renderRubric() {
         _rubricHard.innerHTML = '';
         _rubricSoft.innerHTML = '';
         (_rubric.hard_requirements || []).forEach(r => _appendRubricRow(r, 'hard'));
         (_rubric.soft_requirements || []).forEach(r => _appendRubricRow(r, 'soft'));
+        _setupDropZone(_rubricHard, 'hard');
+        _setupDropZone(_rubricSoft, 'soft');
     }
 
     function _appendRubricRow(req, type, verifyResult = null) {
@@ -520,34 +526,154 @@ const StepNavigator = (() => {
         row.className = 'rubric-row';
         row.dataset.id   = req.id;
         row.dataset.type = type;
+        row.draggable = true;
 
-        let statusIcon = '';
+        // Drag handle
+        const handle = document.createElement('span');
+        handle.className = 'rubric-drag';
+        handle.textContent = '⠿';
+        handle.title = 'Drag to reorder or move between Hard/Soft';
+
+        // Badge
+        const badge = document.createElement('span');
+        badge.className = `rubric-badge rubric-${type}`;
+        badge.textContent = type === 'hard' ? 'H' : 'S';
+
+        // Inline editable label
+        const labelEl = document.createElement('span');
+        labelEl.className = 'rubric-label';
+        labelEl.contentEditable = 'true';
+        labelEl.spellcheck = false;
+        labelEl.textContent = req.label;
+        labelEl.addEventListener('blur', () => {
+            const lst = type === 'hard' ? _rubric.hard_requirements : _rubric.soft_requirements;
+            const item = lst.find(x => x.id === req.id);
+            if (item) item.label = labelEl.textContent.trim() || item.label;
+        });
+        // Prevent Enter from creating newlines
+        labelEl.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); labelEl.blur(); }});
+
+        // Move button (H↔S)
+        const moveBtn = document.createElement('button');
+        moveBtn.className = 'rubric-move';
+        moveBtn.title = `Move to ${type === 'hard' ? 'Soft' : 'Hard'}`;
+        moveBtn.textContent = type === 'hard' ? '↓S' : '↑H';
+        moveBtn.onclick = () => _moveRubricItem(req.id, type);
+
+        // Delete button
+        const delBtn = document.createElement('button');
+        delBtn.className = 'rubric-del';
+        delBtn.title = 'Remove';
+        delBtn.textContent = '✕';
+        delBtn.onclick = () => _deleteRubricItem(req.id, type);
+
+        row.appendChild(handle);
+        row.appendChild(badge);
+        row.appendChild(labelEl);
+
+        // Verify result icon if present
         if (verifyResult !== null) {
-            statusIcon = verifyResult.met
-                ? `<span class="rubric-check" title="${verifyResult.reasoning}">✓</span>`
-                : `<span class="rubric-warn" title="${verifyResult.reasoning}">⚠</span>`;
+            const icon = document.createElement('span');
+            icon.className = verifyResult.met ? 'rubric-check' : 'rubric-warn';
+            icon.textContent = verifyResult.met ? '✓' : '⚠';
+            icon.title = verifyResult.reasoning;
+            icon.style.cursor = 'pointer';
+            let open = false;
+            icon.addEventListener('click', () => {
+                open = !open;
+                let detail = row.querySelector('.rubric-detail');
+                if (!detail) {
+                    detail = document.createElement('div');
+                    detail.className = 'rubric-detail';
+                    row.appendChild(detail);
+                }
+                detail.textContent = verifyResult.reasoning
+                    + (verifyResult.references?.length ? ` (${verifyResult.references.join(', ')})` : '');
+                detail.style.display = open ? 'block' : 'none';
+            });
+            row.appendChild(icon);
         }
 
-        row.innerHTML = `
-            <span class="rubric-badge rubric-${type}">${type === 'hard' ? 'H' : 'S'}</span>
-            <span class="rubric-label">${req.label}</span>
-            ${statusIcon}
-            <button class="rubric-move" title="Move to ${type==='hard'?'soft':'hard'}">⇄</button>
-            <button class="rubric-del" title="Remove">✕</button>`;
+        row.appendChild(moveBtn);
+        row.appendChild(delBtn);
 
-        row.querySelector('.rubric-move').onclick = () => _moveRubricItem(req.id, type);
-        row.querySelector('.rubric-del').onclick  = () => _deleteRubricItem(req.id, type);
+        // ── Drag events ──
+        row.addEventListener('dragstart', e => {
+            _dragId   = req.id;
+            _dragType = type;
+            row.classList.add('dragging');
+            e.dataTransfer.effectAllowed = 'move';
+        });
+        row.addEventListener('dragend', () => {
+            row.classList.remove('dragging');
+            document.querySelectorAll('.rubric-drop-over').forEach(el => el.classList.remove('rubric-drop-over'));
+        });
+        row.addEventListener('dragover', e => {
+            e.preventDefault();
+            e.dataTransfer.dropEffect = 'move';
+            row.classList.add('rubric-drop-over');
+        });
+        row.addEventListener('dragleave', () => row.classList.remove('rubric-drop-over'));
+        row.addEventListener('drop', e => {
+            e.preventDefault();
+            row.classList.remove('rubric-drop-over');
+            if (!_dragId || _dragId === req.id) return;
+            _dropItem(_dragId, _dragType, req.id, type);
+        });
+
         list.appendChild(row);
     }
 
-    function _moveRubricItem(id, fromType) {
+    /** Set up drop zone on the list container itself (for dropping at end or into empty list) */
+    function _setupDropZone(listEl, targetType) {
+        listEl.addEventListener('dragover', e => {
+            // Only handle if hovering directly on the list (not a child row)
+            if (e.target === listEl) { e.preventDefault(); listEl.classList.add('rubric-list-over'); }
+        });
+        listEl.addEventListener('dragleave', e => {
+            if (e.target === listEl) listEl.classList.remove('rubric-list-over');
+        });
+        listEl.addEventListener('drop', e => {
+            if (e.target !== listEl) return;
+            e.preventDefault();
+            listEl.classList.remove('rubric-list-over');
+            if (!_dragId) return;
+            // Move dragged item to end of targetType list
+            _moveRubricToType(_dragId, _dragType, targetType);
+        });
+    }
+
+    /** Reorder or cross-list drop: move dragId to just before targetId (possibly changing type) */
+    function _dropItem(dragId, fromType, targetId, targetType) {
         const fromList = fromType === 'hard' ? _rubric.hard_requirements : _rubric.soft_requirements;
-        const toList   = fromType === 'hard' ? _rubric.soft_requirements : _rubric.hard_requirements;
-        const idx = fromList.findIndex(r => r.id === id);
+        const toList   = targetType === 'hard' ? _rubric.hard_requirements : _rubric.soft_requirements;
+
+        const fromIdx = fromList.findIndex(r => r.id === dragId);
+        if (fromIdx < 0) return;
+        const [item] = fromList.splice(fromIdx, 1);
+
+        // If crossing lists, push to toList before target
+        const toIdx = toList.findIndex(r => r.id === targetId);
+        if (toIdx >= 0) toList.splice(toIdx, 0, item);
+        else toList.push(item);
+
+        _renderRubric();
+    }
+
+    function _moveRubricToType(dragId, fromType, toType) {
+        if (fromType === toType) return;
+        const fromList = fromType === 'hard' ? _rubric.hard_requirements : _rubric.soft_requirements;
+        const toList   = toType   === 'hard' ? _rubric.hard_requirements : _rubric.soft_requirements;
+        const idx = fromList.findIndex(r => r.id === dragId);
         if (idx < 0) return;
         const [item] = fromList.splice(idx, 1);
         toList.push(item);
         _renderRubric();
+    }
+
+    function _moveRubricItem(id, fromType) {
+        const toType = fromType === 'hard' ? 'soft' : 'hard';
+        _moveRubricToType(id, fromType, toType);
     }
 
     function _deleteRubricItem(id, type) {
@@ -558,11 +684,23 @@ const StepNavigator = (() => {
     }
 
     function _onRubricAdd() {
-        const label = prompt('New requirement:');
-        if (!label) return;
-        const id = 's' + Date.now();
-        _rubric.soft_requirements.push({ id, label, checked: false });
+        // Add blank entry to soft requirements and re-render — label is editable inline
+        const id = 'u' + Date.now();
+        _rubric.soft_requirements.push({ id, label: '', checked: false });
         _renderRubric();
+        // Focus the newly added label so user can type immediately
+        requestAnimationFrame(() => {
+            const newRow = _rubricSoft.querySelector(`[data-id="${id}"] .rubric-label`);
+            if (newRow) { newRow.focus(); _selectAllText(newRow); }
+        });
+    }
+
+    function _selectAllText(el) {
+        const range = document.createRange();
+        range.selectNodeContents(el);
+        const sel = window.getSelection();
+        sel.removeAllRanges();
+        sel.addRange(range);
     }
 
     // ── Dependency Graph ──────────────────────────────────────────────────────
