@@ -1,28 +1,52 @@
 /**
  * worksheetContext.js
  * Reads worksheet state to provide LLM context.
- *
- * PLACEHOLDER — implementation coming.
  */
 const WorksheetContext = (() => {
 
-    /**
-     * Gather context from the active worksheet.
-     * @param {string[]} contextTypes - e.g. ['selection', 'sheet', 'named-ranges']
-     * @returns {Promise<object>} Structured context object sent to the LLM.
-     */
     async function gather(contextTypes = ['selection']) {
-        // PLACEHOLDER: implement per context type
-        // Example shape to fill in:
         const ctx = {
-            selection:   null,   // { address, values, formulas }
-            sheetData:   null,   // { usedRange: { address, values } }
-            namedRanges: null,   // [{ name, address }]
-            sheetNames:  null,   // string[]
+            selection:   null,
+            sheetData:   null,
+            namedRanges: null,
+            sheetNames:  null,
         };
 
-        // TODO: use Excel.run to populate each requested field
-        // await Excel.run(async (context) => { ... });
+        try {
+            await Excel.run(async (exCtx) => {
+                const wb    = exCtx.workbook;
+                const sheet = wb.worksheets.getActiveWorksheet();
+
+                if (contextTypes.includes('selection')) {
+                    const sel = wb.getSelectedRange();
+                    sel.load(['address','values','formulas']);
+                    await exCtx.sync();
+                    ctx.selection = { address: sel.address, values: sel.values, formulas: sel.formulas };
+                }
+
+                if (contextTypes.includes('sheet')) {
+                    const used = sheet.getUsedRange();
+                    used.load(['address','values']);
+                    await exCtx.sync();
+                    ctx.sheetData = { usedRange: { address: used.address, values: used.values } };
+                }
+
+                if (contextTypes.includes('named-ranges')) {
+                    const names = wb.names;
+                    names.load('items');
+                    await exCtx.sync();
+                    ctx.namedRanges = names.items.map(n => ({ name: n.name, value: n.value }));
+                }
+
+                // Always include sheet names
+                const sheets = wb.worksheets;
+                sheets.load('items/name');
+                await exCtx.sync();
+                ctx.sheetNames = sheets.items.map(s => s.name);
+            });
+        } catch (err) {
+            console.warn('[WorksheetContext] gather error:', err.message);
+        }
 
         return ctx;
     }
