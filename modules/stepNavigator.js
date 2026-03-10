@@ -94,7 +94,7 @@ const StepNavigator = (() => {
         _togglePanel('rubric');
         _renderRubric();
         // Override Next button for gate
-        _btnNext.textContent = 'Start →';
+        _btnNext.textContent = '→';
         _btnNext.disabled    = false;
         _btnPrev.disabled    = true;
         _btnEdit.disabled    = true;
