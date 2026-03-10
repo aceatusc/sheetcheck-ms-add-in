@@ -18,7 +18,7 @@ const LLMClient = (() => {
 
     // ── Config ────────────────────────────────────────────────────────────────
 
-    const SERVER_URL    = "https://sackend.isi.edu/sheetcheck/backend/addin/chat";
+    const SERVER_URL    = "https://sackend.isi.edu/sheetcheck/backend/addin/code";
     const SHARED_SECRET = "my-super-secret-2025"; // must match SHARED_SECRET in backend app/server.py
 
     // ── Public ────────────────────────────────────────────────────────────────
