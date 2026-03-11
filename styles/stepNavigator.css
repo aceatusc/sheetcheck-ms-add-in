@@ -58,7 +58,7 @@
 #step-nav-badge {
     display:inline-block; font-size:10px; font-weight:700;
     letter-spacing:0.1em; text-transform:uppercase;
-    background:rgba(0,0,0,0.18); color:#000;
+    background:rgba(255,255,255,0.18); color:#fff;
     padding:2px 8px; border-radius:99px; margin-bottom:7px;
 }
 #step-nav-ranges { display:flex; flex-wrap:wrap; gap:4px; margin-bottom:7px; }
@@ -93,7 +93,7 @@
 .nav-verify-btn:hover { background:rgba(62,207,142,0.5); }
 
 #step-nav-pagination { margin-left:auto; display:flex; align-items:center; gap:8px; }
-#step-nav-counter { font-size:12px; font-weight:700; color:#000; min-width:32px; text-align:center; }
+#step-nav-counter { font-size:12px; font-weight:600; color:#fff; min-width:32px; text-align:center; }
 .step-nav-arrow {
     width:28px; height:28px; border-radius:50%;
     background:rgba(255,255,255,0.18); border:none; cursor:pointer;
