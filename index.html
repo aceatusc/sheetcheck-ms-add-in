@@ -4,124 +4,119 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>SheetCheck</title>
-
     <script src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js"></script>
-
-    <!-- Styles -->
     <link rel="stylesheet" href="styles/theme.css" />
     <link rel="stylesheet" href="styles/chat.css" />
     <link rel="stylesheet" href="styles/execution.css" />
     <link rel="stylesheet" href="styles/stepNavigator.css" />
 </head>
-
 <body>
 
-    <!-- =============================================
-         Component: Chat Panel
-         ============================================= -->
-    <div id="chat-panel">
-
-        <div id="chat-header">
-            <div class="logo-dot"></div>
-            <h1>SheetCheck</h1>
-            <span class="model-badge">GPT / Claude</span>
-        </div>
-
-        <div id="message-feed">
-            <div class="message agent" id="welcome-message">
-                <div class="message-bubble">
-                    👋 Hi! I can help you modify your spreadsheet using natural language.
-                    Try describing a change you'd like to make.
-                </div>
-                <span class="message-meta">Assistant</span>
-            </div>
-
-            <div id="typing-indicator">
-                <div class="typing-dot"></div>
-                <div class="typing-dot"></div>
-                <div class="typing-dot"></div>
-            </div>
-        </div>
-
-        <div id="input-bar">
-            <!-- <div id="context-strip">
-                <span class="context-chip active" data-context="selection">Selection</span>
-                <span class="context-chip"        data-context="sheet">Sheet Data</span>
-                <span class="context-chip"        data-context="named-ranges">Named Ranges</span>
-            </div> -->
-
-            <div id="input-row">
-                <textarea
-                    id="chat-input"
-                    rows="1"
-                    placeholder="Ask me to change your spreadsheet…"
-                ></textarea>
-                <button id="send-button" disabled>
-                    <svg viewBox="0 0 24 24"><path d="M2 21l21-9L2 3v7l15 2-15 2z"/></svg>
-                </button>
-            </div>
-        </div>
-
+<!-- Chat Panel -->
+<div id="chat-panel">
+    <div id="chat-header">
+        <div class="logo-dot"></div>
+        <h1>SheetCheck</h1>
+        <span class="model-badge">AI</span>
     </div>
-
-
-    <!-- =============================================
-         Component: Step Navigator Overlay
-         Floats above the execution panel.
-         ============================================= -->
-    <div id="step-navigator">
-        <button id="step-nav-close">✕</button>
-
-        <div id="step-nav-badge">Step 1 of 8</div>
-
-        <div id="step-nav-ranges">
-            <!-- range-chip elements injected by StepNavigator -->
+    <div id="message-feed">
+        <div class="message agent" id="welcome-message">
+            <div class="message-bubble">👋 Hi! I can help you modify your spreadsheet. Try describing a change you'd like to make or something you want to build from scratch.</div>
+            <span class="message-meta">Assistant</span>
         </div>
+        <div id="typing-indicator">
+            <div class="typing-dot"></div><div class="typing-dot"></div><div class="typing-dot"></div>
+        </div>
+    </div>
+    <div id="input-bar">
+        <div id="input-row">
+            <textarea id="chat-input" rows="1" placeholder="Ask me to change your spreadsheet…"></textarea>
+            <button id="send-button" disabled>
+                <svg viewBox="0 0 24 24"><path d="M2 21l21-9L2 3v7l15 2-15 2z"/></svg>
+            </button>
+        </div>
+    </div>
+</div>
 
-        <div id="step-nav-description">Description</div>
-        <div id="step-nav-explanation">Explanation text goes here.</div>
+<!-- Step Navigator -->
+<div id="step-navigator">
+    <button id="step-nav-close">✕</button>
 
-        <div id="step-nav-footer">
-            <!-- <button id="step-nav-edit">Edit</button> -->
+    <!-- SF1.2: Dependency graph -->
+    <div id="step-nav-graph"></div>
 
-            <div id="step-nav-pagination">
-                <button class="step-nav-arrow" id="step-nav-prev" disabled>&#8592;</button>
-                <span   id="step-nav-counter">1/8</span>
-                <button class="step-nav-arrow" id="step-nav-next">&#8594;</button>
-            </div>
+    <div id="step-nav-badge">Step 1 of 8</div>
+    <div id="step-nav-ranges"></div>
+    <div id="step-nav-description">Description</div>
+    <div id="step-nav-explanation">Explanation</div>
+
+    <!-- SF1.3: Q&A pairs -->
+    <div id="step-nav-qa-list"></div>
+
+    <!-- Navigation footer -->
+    <div id="step-nav-footer">
+        <button id="step-nav-edit" class="nav-action-btn">Edit</button>
+        <button id="step-nav-ask"  class="nav-action-btn">Ask</button>
+        <div id="step-nav-pagination">
+            <button class="step-nav-arrow" id="step-nav-prev" disabled>&#8592;</button>
+            <span id="step-nav-counter">1/8</span>
+            <button class="step-nav-arrow" id="step-nav-next">&#8594;</button>
         </div>
     </div>
 
-
-    <!-- =============================================
-         Component: Execution Panel
-         ============================================= -->
-    <div id="execution-panel">
-        <div id="execution-header">
-            <div id="execution-status-dot"></div>
-            <span>Execution Log</span>
-            <span id="execution-toggle-icon">▲</span>
+    <!-- SF1.3: Ask panel -->
+    <div id="step-nav-ask-panel" style="display:none">
+        <div id="step-nav-ask-thread"></div>
+        <div id="step-nav-ask-chips"></div>
+        <div id="step-nav-ask-input-row">
+            <textarea id="step-nav-ask-input" rows="1" placeholder="Ask about this step…"></textarea>
+            <button id="step-nav-ask-send">↑</button>
         </div>
+    </div>
+
+    <!-- SF2.1 + SF2.2: Edit panel -->
+    <div id="step-nav-edit-panel" style="display:none">
+        <div class="edit-section-label">Alternatives</div>
+        <div id="step-nav-alt-list"></div>
+        <div class="edit-section-label">Affordances</div>
+        <div id="step-nav-affordances"></div>
+        <textarea id="step-nav-edit-feedback" rows="2" placeholder="Describe your edit or select an alternative above…"></textarea>
+        <button id="step-nav-edit-send">Apply Edit</button>
+    </div>
+
+    <!-- SF1.4: Rubric panel -->
+    <div id="step-nav-rubric" style="display:none">
+        <div class="rubric-section-label">Hard Requirements</div>
+        <div id="rubric-hard-list"></div>
+        <div class="rubric-section-label">Soft Requirements</div>
+        <div id="rubric-soft-list"></div>
+        <button id="rubric-add-btn" class="rubric-add">+ Add requirement</button>
+        <div id="rubric-verify-results"></div>
+    </div>
+</div>
+
+<!-- Execution Panel -->
+<div id="execution-panel">
+    <div id="execution-header">
+        <div id="execution-status-dot"></div>
+        <span>Execution Log</span>
+        <span id="execution-toggle-icon">▲</span>
+    </div>
+    <div id="execution-body">
         <div id="segment-progress">
-            <div id="segment-bar-track">
-                <div id="segment-bar-fill"></div>
-            </div>
+            <div id="segment-bar-track"><div id="segment-bar-fill"></div></div>
             <span id="segment-label">0 / 0</span>
         </div>
-        <div id="execution-log">
-            <!-- ExecutionEngine appends log-line divs here -->
-        </div>
+        <div id="execution-log"></div>
     </div>
+</div>
 
-
-    <!-- Modules — load in dependency order -->
-    <script src="modules/officeInit.js"></script>
-    <script src="modules/worksheetContext.js"></script>
-    <script src="modules/llmClient.js"></script>
-    <script src="modules/stepNavigator.js"></script>
-    <script src="modules/executionEngine.js"></script>
-    <script src="modules/chatManager.js"></script>
-    <script src="modules/app.js"></script>
-
+<script src="modules/officeInit.js"></script>
+<script src="modules/worksheetContext.js"></script>
+<script src="modules/llmClient.js"></script>
+<script src="modules/stepNavigator.js"></script>
+<script src="modules/executionEngine.js"></script>
+<script src="modules/chatManager.js"></script>
+<script src="modules/app.js"></script>
 </body>
 </html>

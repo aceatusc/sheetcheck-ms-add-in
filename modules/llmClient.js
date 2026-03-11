@@ -1,56 +1,59 @@
 /**
- * llmClient.js
- * Sends the user message + worksheet context to a Python proxy
- * which handles test mode, LLM API calls, and response parsing.
- *
- * To use the stub/test data, set TEST_MODE = True in server.py.
- *
- * CodeSegment shape (returned by server):
- *   {
- *     id:            string,
- *     description:   string,
- *     sheet_context: string[],
- *     explanation:   string,
- *     code:          string,   // Office.js async code to run
- *   }
+ * llmClient.js — thin fetch wrapper for all /addin/* endpoints.
  */
 const LLMClient = (() => {
 
-    // ── Config ────────────────────────────────────────────────────────────────
+    const BASE_URL      = "https://sackend.isi.edu/sheetcheck/backend/addin";
+    const SHARED_SECRET = "my-super-secret-2025";
 
-    const SERVER_URL    = "https://sackend.isi.edu/sheetcheck/backend/addin/code";
-    const SHARED_SECRET = "my-super-secret-2025"; // must match SHARED_SECRET in backend app/server.py
+    function _headers() {
+        return { 'Content-Type': 'application/json', 'X-Addin-Secret': SHARED_SECRET };
+    }
 
-    // ── Public ────────────────────────────────────────────────────────────────
-
-    /**
-     * Send user message + worksheet context to the Python proxy.
-     *
-     * @param {string} userMessage  - Raw user input from chat
-     * @param {object} wsContext    - Output of WorksheetContext.gather()
-     * @returns {Promise<CodeSegment[]>}
-     */
-    async function sendMessage(userMessage, wsContext) {
-        const response = await fetch(SERVER_URL, {
-            method:  'POST',
-            headers: {
-                'Content-Type':   'application/json',
-                'X-Addin-Secret': SHARED_SECRET,
-            },
-            body: JSON.stringify({
-                message: userMessage,
-                context: wsContext,
-            }),
+    async function _post(path, body) {
+        const res = await fetch(`${BASE_URL}${path}`, {
+            method: 'POST', headers: _headers(), body: JSON.stringify(body),
         });
-
-        if (!response.ok) {
-            const err = await response.json().catch(() => ({}));
-            throw new Error(err.error || `Server error ${response.status}`);
+        if (!res.ok) {
+            const e = await res.json().catch(() => ({}));
+            throw new Error(e.error || `Server error ${res.status}`);
         }
+        return res.json();
+    }
 
-        const data = await response.json();
+    /** Generate code segments for a task. */
+    async function generateCode(message, wsContext, rubric = null) {
+        const body = { message, context: wsContext };
+        if (rubric) body.rubric = rubric;
+        const data = await _post('/code', body);
         return data.segments;
     }
 
-    return { sendMessage };
+    /** Follow-up Q&A about a step. */
+    async function ask(message, wsContext, step, history = []) {
+        return _post('/ask', { message, context: wsContext, step, history });
+    }
+
+    /** Edit a specific segment. */
+    async function edit(message, wsContext, segment, preferredAltId = null) {
+        const data = await _post('/edit', { message, context: wsContext, segment, preferred_alt_id: preferredAltId });
+        return data.segment;
+    }
+
+    /** Scaffold an initial rubric for the task. */
+    async function rubricScaffold(message, wsContext) {
+        return _post('/rubric/scaffold', { message, context: wsContext });
+    }
+
+    /** Verify worksheet against rubric. */
+    async function rubricVerify(rubric, wsContext) {
+        return _post('/rubric/verify', { rubric, context: wsContext });
+    }
+
+    /** General chat proxy. */
+    async function chat(message, wsContext) {
+        return _post('/chat', { message, context: wsContext });
+    }
+
+    return { generateCode, ask, edit, rubricScaffold, rubricVerify, chat };
 })();

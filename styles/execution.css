@@ -5,12 +5,17 @@
 #execution-panel {
     border-top: 1px solid var(--color-border);
     background: var(--color-bg);
+    flex-shrink: 0;
+}
+
+/* The collapsible body: log + progress */
+#execution-body {
     max-height: 0;
     overflow: hidden;
     transition: max-height 0.3s ease;
 }
 
-#execution-panel.open { max-height: 180px; }
+#execution-panel.open #execution-body { max-height: 200px; }
 
 #execution-header {
     padding: 6px 16px;
@@ -19,12 +24,8 @@
     gap: 8px;
     cursor: pointer;
     user-select: none;
-    border-bottom: 1px solid transparent;
+    border-bottom: 1px solid var(--color-border);
     transition: border-color var(--transition);
-}
-
-#execution-panel.open #execution-header {
-    border-bottom-color: var(--color-border);
 }
 
 #execution-header span {

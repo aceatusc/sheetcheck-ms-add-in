@@ -1,173 +1,270 @@
 /* =============================================
-   Step Navigator Overlay
+   Step Navigator — all SF features
    ============================================= */
 
+/* Chat dimming while navigation is active */
+#chat-panel {
+    transition: opacity 0.3s ease, filter 0.3s ease;
+}
+#chat-panel.nav-active {
+    opacity: 0.35;
+    filter: blur(1px);
+    pointer-events: none;
+}
+
+/* ── Main overlay ── */
 #step-navigator {
     position: fixed;
-    bottom: 180px;
+    bottom: 170px;
     left: 50%;
-    transform: translateX(-50%) translateY(-20px);
-    width: calc(100% - 32px);
-    max-width: 420px;
+    transform: translateX(-50%) translateY(20px);
+    width: calc(100% - 16px);
+    max-width: 440px;
     background: #1e7a4a;
-    border-radius: 18px;
-    padding: 20px 20px 16px;
-    box-shadow: 0 8px 40px rgba(0,0,0,0.45), 0 2px 8px rgba(0,0,0,0.3);
+    border-radius: 14px;
+    padding: 12px 14px 12px;
+    box-shadow: 0 8px 40px rgba(0,0,0,0.5);
     z-index: 1000;
     opacity: 0;
     pointer-events: none;
-    transition: opacity 0.25s ease, transform 0.25s ease;
+    transition: opacity 0.22s ease, transform 0.22s ease;
+    max-height: calc(100vh - 200px);
+    overflow-y: auto;
 }
-
-#step-navigator.visible {
-    opacity: 1;
-    pointer-events: all;
-    transform: translateX(-50%) translateY(0);
-}
-
-/* Arrow pointing up toward the sheet area */
-#step-navigator::before {
-    content: '';
-    position: absolute;
-    bottom: -10px;
-    left: 50%;
-    transform: translateX(-50%);
-    border-left: 10px solid transparent;
-    border-right: 10px solid transparent;
-    border-top: 10px solid #1e7a4a;
-}
-
-/* Step label badge */
-#step-nav-badge {
-    display: inline-block;
-    font-size: 10px;
-    font-weight: 700;
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
-    background: rgba(255,255,255,0.18);
-    color: #fff;
-    padding: 2px 9px;
-    border-radius: 99px;
-    margin-bottom: 10px;
-}
-
-/* Range chips */
-#step-nav-ranges {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 5px;
-    margin-bottom: 10px;
-}
-
-.range-chip {
-    font-family: var(--font-mono);
-    font-size: 10px;
-    background: rgba(255,255,255,0.2);
-    color: #fff;
-    padding: 2px 8px;
-    border-radius: 5px;
-    letter-spacing: 0.04em;
-}
-
-/* Description (bold) */
-#step-nav-description {
-    font-size: 13px;
-    font-weight: 700;
-    color: #fff;
-    margin-bottom: 6px;
-    line-height: 1.35;
-}
-
-/* Explanation body */
-#step-nav-explanation {
-    font-size: 12px;
-    color: rgba(255,255,255,0.88);
-    line-height: 1.55;
-    margin-bottom: 16px;
-}
-
-/* Footer: edit button + pagination + arrows */
-#step-nav-footer {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-}
-
-#step-nav-edit {
-    background: #fff;
-    color: #1e7a4a;
-    border: none;
-    border-radius: 99px;
-    font-size: 12px;
-    font-weight: 700;
-    padding: 6px 16px;
-    cursor: pointer;
-    transition: opacity 0.15s;
-    flex-shrink: 0;
-}
-
-#step-nav-edit:hover { opacity: 0.85; }
-
-#step-nav-pagination {
-    margin-left: auto;
-    display: flex;
-    align-items: center;
-    gap: 10px;
-}
-
-#step-nav-counter {
-    font-size: 13px;
-    font-weight: 600;
-    color: #fff;
-    min-width: 36px;
-    text-align: center;
-}
-
-.step-nav-arrow {
-    width: 30px; height: 30px;
-    border-radius: 50%;
-    background: rgba(255,255,255,0.18);
-    border: none;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    transition: background 0.15s;
-    color: #fff;
-    font-size: 14px;
-    line-height: 1;
-}
-
-.step-nav-arrow:hover    { background: rgba(255,255,255,0.32); }
-.step-nav-arrow:disabled { opacity: 0.3; cursor: not-allowed; }
-
-/* Close / dismiss button */
-#step-nav-close {
-    position: absolute;
-    top: 10px; right: 12px;
-    background: none;
-    border: none;
-    color: rgba(255,255,255,0.55);
-    font-size: 16px;
-    cursor: pointer;
-    line-height: 1;
-    padding: 2px 4px;
-    transition: color 0.15s;
-}
-
-#step-nav-close:hover { color: #fff; }
-
-/* Running state — pulsing border */
-#step-navigator.running {
-    background: #1e5a7a;
-    animation: navPulse 1.2s infinite;
-}
-
-#step-navigator.running::before {
-    border-bottom-color: #1e5a7a;
-}
+#step-navigator.visible  { opacity:1; pointer-events:all; transform:translateX(-50%) translateY(0); }
+#step-navigator.running  { background:#1e5a7a; animation:navPulse 1.2s infinite; }
 
 @keyframes navPulse {
-    0%, 100% { box-shadow: 0 8px 40px rgba(0,0,0,0.45), 0 0 0 0 rgba(79,142,247,0.4); }
-    50%       { box-shadow: 0 8px 40px rgba(0,0,0,0.45), 0 0 0 8px rgba(79,142,247,0); }
+    0%,100% { box-shadow:0 8px 40px rgba(0,0,0,0.5),0 0 0 0 rgba(79,142,247,0.4); }
+    50%      { box-shadow:0 8px 40px rgba(0,0,0,0.5),0 0 0 8px rgba(79,142,247,0); }
+}
+
+#step-nav-close {
+    position:absolute; top:8px; right:10px;
+    background:none; border:none; color:rgba(255,255,255,0.5);
+    font-size:14px; cursor:pointer; padding:2px 4px; transition:color 0.15s;
+}
+#step-nav-close:hover { color:#fff; }
+
+/* ── SF1.2 Graph ── */
+#step-nav-graph {
+    margin-bottom: 8px;
+    overflow: visible;
+}
+#step-nav-graph svg { overflow: visible; display: block; }
+#step-nav-graph g:hover circle { stroke: #fff !important; }
+
+/* ── Badge + ranges ── */
+#step-nav-badge {
+    display:inline-block; font-size:10px; font-weight:700;
+    letter-spacing:0.1em; text-transform:uppercase;
+    background:rgba(255,255,255,0.18); color:#fff;
+    padding:2px 8px; border-radius:99px; margin-bottom:7px;
+}
+#step-nav-ranges { display:flex; flex-wrap:wrap; gap:4px; margin-bottom:7px; }
+.range-chip {
+    font-family:var(--font-mono); font-size:10px;
+    background:rgba(255,255,255,0.2); color:#fff;
+    padding:2px 7px; border-radius:4px;
+}
+#step-nav-description { font-size:13px; font-weight:700; color:#fff; margin-bottom:4px; line-height:1.3; }
+#step-nav-explanation { font-size:11.5px; color:rgba(255,255,255,0.85); line-height:1.5; margin-bottom:8px; }
+
+/* ── SF1.3 Q&A ── */
+#step-nav-qa-list { margin-bottom:8px; }
+.qa-item { border-bottom:1px solid rgba(255,255,255,0.12); padding:3px 0; }
+.qa-q {
+    font-size:11px; color:rgba(255,255,255,0.75); cursor:pointer;
+    list-style:none; padding:3px 0;
+}
+.qa-q:hover { color:#fff; }
+.qa-a { font-size:11px; color:rgba(255,255,255,0.88); padding:4px 0 4px 8px; margin:0; }
+
+/* ── Footer ── */
+#step-nav-footer { display:flex; align-items:center; gap:6px; margin-bottom:6px; flex-wrap:wrap; }
+.nav-action-btn {
+    background:rgba(255,255,255,0.18); color:#fff; border:none;
+    border-radius:6px; font-size:11px; font-weight:600;
+    padding:5px 11px; cursor:pointer; transition:background 0.15s;
+}
+.nav-action-btn:hover { background:rgba(255,255,255,0.3); }
+.nav-action-btn:disabled { opacity:0.3; cursor:not-allowed; }
+.nav-verify-btn { background:rgba(62,207,142,0.3); }
+.nav-verify-btn:hover { background:rgba(62,207,142,0.5); }
+
+#step-nav-pagination { margin-left:auto; display:flex; align-items:center; gap:8px; }
+#step-nav-counter { font-size:12px; font-weight:600; color:#fff; min-width:32px; text-align:center; }
+.step-nav-arrow {
+    width:28px; height:28px; border-radius:50%;
+    background:rgba(255,255,255,0.18); border:none; cursor:pointer;
+    color:#fff; font-size:13px; display:flex; align-items:center; justify-content:center;
+    transition:background 0.15s;
+}
+.step-nav-arrow:hover    { background:rgba(255,255,255,0.32); }
+.step-nav-arrow:disabled { opacity:0.3; cursor:not-allowed; }
+
+/* ── SF1.3 Ask panel ── */
+#step-nav-ask-panel {
+    flex-direction:column; gap:6px;
+    border-top:1px solid rgba(255,255,255,0.2); padding-top:8px; margin-top:4px;
+}
+#step-nav-ask-thread {
+    max-height:120px; overflow-y:auto; display:flex; flex-direction:column; gap:5px;
+}
+.ask-bubble {
+    font-size:11.5px; padding:5px 9px; border-radius:8px; line-height:1.45;
+}
+.ask-user  { background:rgba(255,255,255,0.2); color:#fff; align-self:flex-end; }
+.ask-agent { background:rgba(0,0,0,0.2); color:rgba(255,255,255,0.9); align-self:flex-start; }
+#step-nav-ask-chips { display:flex; flex-wrap:wrap; gap:4px; }
+.ask-chip {
+    background:rgba(255,255,255,0.15); color:#fff; border:none;
+    border-radius:99px; font-size:10px; padding:3px 9px; cursor:pointer;
+    transition:background 0.15s;
+}
+.ask-chip:hover { background:rgba(255,255,255,0.28); }
+#step-nav-ask-input-row { display:flex; gap:6px; align-items:flex-end; }
+#step-nav-ask-input {
+    flex:1; background:rgba(0,0,0,0.25); border:1px solid rgba(255,255,255,0.25);
+    border-radius:8px; color:#fff; font-size:11.5px; padding:6px 9px;
+    resize:none; outline:none; font-family:var(--font-ui);
+}
+#step-nav-ask-input::placeholder { color:rgba(255,255,255,0.4); }
+#step-nav-ask-send {
+    width:28px; height:28px; border-radius:8px;
+    background:rgba(255,255,255,0.25); border:none; color:#fff;
+    font-size:14px; cursor:pointer; transition:background 0.15s;
+    display:flex; align-items:center; justify-content:center; flex-shrink:0;
+}
+#step-nav-ask-send:hover { background:rgba(255,255,255,0.4); }
+
+/* ── SF2.1 Edit panel ── */
+#step-nav-edit-panel {
+    flex-direction:column; gap:7px;
+    border-top:1px solid rgba(255,255,255,0.2); padding-top:8px; margin-top:4px;
+}
+.edit-section-label { font-size:10px; font-weight:700; text-transform:uppercase;
+    letter-spacing:0.08em; color:rgba(255,255,255,0.55); margin-bottom:2px; }
+.alt-row {
+    background:rgba(0,0,0,0.2); border:1px solid rgba(255,255,255,0.15);
+    border-radius:7px; padding:6px 9px; cursor:pointer; transition:background 0.15s;
+}
+.alt-row:hover   { background:rgba(255,255,255,0.12); }
+.alt-row.selected{ background:rgba(255,255,255,0.22); border-color:rgba(255,255,255,0.5); }
+.alt-row-header  { display:flex; justify-content:space-between; align-items:center; }
+.alt-label { font-size:11.5px; color:#fff; font-weight:500; }
+.alt-prob  { font-size:10px; color:rgba(255,255,255,0.6); }
+
+/* SF2.2 Affordances */
+.aff-row { display:flex; align-items:center; justify-content:space-between; gap:8px; padding:3px 0; }
+.aff-label { font-size:11px; color:rgba(255,255,255,0.8); flex:1; }
+.aff-control {
+    background:rgba(0,0,0,0.25); border:1px solid rgba(255,255,255,0.25);
+    color:#fff; font-size:11px; border-radius:5px; padding:2px 6px; outline:none;
+}
+.aff-color { width:32px; height:22px; padding:0; border-radius:4px; cursor:pointer; }
+.aff-number { width:72px; }
+select.aff-control option { background:#1a1d27; }
+
+#step-nav-edit-feedback {
+    width:100%; background:rgba(0,0,0,0.25); border:1px solid rgba(255,255,255,0.2);
+    border-radius:7px; color:#fff; font-size:11.5px; padding:6px 9px;
+    resize:none; outline:none; font-family:var(--font-ui);
+}
+#step-nav-edit-feedback::placeholder { color:rgba(255,255,255,0.4); }
+#step-nav-edit-send {
+    align-self:flex-end; background:rgba(255,255,255,0.22); border:none;
+    color:#fff; font-size:11.5px; font-weight:600;
+    padding:6px 14px; border-radius:7px; cursor:pointer; transition:background 0.15s;
+}
+#step-nav-edit-send:hover { background:rgba(255,255,255,0.35); }
+
+/* Rubric gate: hide step-specific content, show only rubric */
+#step-navigator.rubric-gate #step-nav-graph,
+#step-navigator.rubric-gate #step-nav-ranges,
+#step-navigator.rubric-gate #step-nav-qa-list {
+    display: none;
+}
+#step-navigator.rubric-gate #step-nav-description {
+    font-size: 11px;
+    font-weight: 400;
+    color: rgba(255,255,255,0.7);
+    margin-bottom: 8px;
+}
+
+
+/* ── SF1.4 Rubric panel ── */
+#step-nav-rubric {
+    border-top:1px solid rgba(255,255,255,0.2); padding-top:8px; margin-top:4px;
+}
+.rubric-section-label {
+    font-size:10px; font-weight:700; text-transform:uppercase;
+    letter-spacing:0.08em; color:rgba(255,255,255,0.55); margin:6px 0 3px;
+}
+.rubric-row {
+    display:flex; align-items:center; gap:4px; padding:3px 2px;
+    border-bottom:1px solid rgba(255,255,255,0.08); font-size:11.5px;
+    cursor:default; border-radius:4px; transition:background 0.1s;
+    user-select:none;
+}
+.rubric-row.dragging      { opacity:0.4; }
+.rubric-row.rubric-drop-over { background:rgba(255,255,255,0.12); }
+
+.rubric-drag {
+    color:rgba(255,255,255,0.3); font-size:13px; cursor:grab;
+    padding:0 2px; flex-shrink:0; line-height:1;
+}
+.rubric-drag:active { cursor:grabbing; }
+
+.rubric-badge {
+    font-size:9px; font-weight:700; padding:1px 5px; border-radius:3px; flex-shrink:0;
+}
+.rubric-hard { background:rgba(249,115,22,0.35); color:#fed7aa; }
+.rubric-soft { background:rgba(79,142,247,0.3);  color:#bfdbfe; }
+
+.rubric-label {
+    flex:1; color:rgba(255,255,255,0.9); min-width:0;
+    border-radius:3px; padding:1px 3px; outline:none;
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+}
+.rubric-label:empty::before {
+    content:'Type requirement…'; color:rgba(255,255,255,0.3); pointer-events:none;
+}
+.rubric-label:focus {
+    background:rgba(0,0,0,0.25); border:1px solid rgba(255,255,255,0.3);
+    white-space:normal; overflow:visible; user-select:text;
+}
+
+.rubric-check { color:#3ecf8e; font-size:13px; flex-shrink:0; cursor:pointer; }
+.rubric-warn  { color:#f5a623; font-size:13px; flex-shrink:0; cursor:pointer; }
+
+.rubric-move {
+    background:none; border:none; color:rgba(255,255,255,0.35); cursor:pointer;
+    font-size:9px; font-weight:700; padding:1px 4px; transition:color 0.15s;
+    flex-shrink:0; border-radius:3px; line-height:1.4;
+}
+.rubric-move:hover { color:rgba(255,255,255,0.85); background:rgba(255,255,255,0.1); }
+.rubric-del {
+    background:none; border:none; color:rgba(255,255,255,0.35); cursor:pointer;
+    font-size:11px; padding:1px 3px; transition:color 0.15s; flex-shrink:0;
+}
+.rubric-del:hover { color:#f25f5c; }
+
+#rubric-hard-list.rubric-list-over,
+#rubric-soft-list.rubric-list-over {
+    background:rgba(255,255,255,0.06); border-radius:5px;
+    outline:1px dashed rgba(255,255,255,0.3);
+}
+
+.rubric-add {
+    margin-top:7px; background:rgba(255,255,255,0.1); border:1px dashed rgba(255,255,255,0.25);
+    color:rgba(255,255,255,0.65); font-size:11px; padding:4px 10px;
+    border-radius:6px; cursor:pointer; width:100%; transition:background 0.15s;
+}
+.rubric-add:hover { background:rgba(255,255,255,0.2); }
+#rubric-verify-results { margin-top:6px; }
+
+.rubric-detail {
+    font-size:10.5px; color:rgba(255,255,255,0.75);
+    padding:3px 0 2px 20px; line-height:1.4; display:none;
 }
