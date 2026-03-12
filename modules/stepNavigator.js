@@ -484,7 +484,7 @@ const StepNavigator = (() => {
             // Live apply: re-run the current segment's code with the updated affordance value
             control.addEventListener('change', () => {
                 aff.value = control.type === 'checkbox' ? String(control.checked) : control.value;
-                _applyAffordance(seg, aff);
+                _applyAffordance(aff);
             });
 
             const label = document.createElement('span');
@@ -500,114 +500,150 @@ const StepNavigator = (() => {
      * Inject the updated affordance value into the segment code (via placeholder comment
      * or by re-running the code with a find-replace on the old value) and run it live.
      */
-    async function _applyAffordance(seg, aff) {
-        // Replace the placeholder comment /* AFFORDANCE:aff-id */ with the value,
-        // or fall back to a simple string replace of the old default in the code.
+    async function _applyAffordance(aff) {
+        // Always read from live segments array — avoids stale closure after edits
+        const seg = _segments[_currentIndex];
+        if (!seg) return;
+
         let code = seg.code;
         const placeholder = `/* AFFORDANCE:${aff.id} */`;
         if (code.includes(placeholder)) {
             code = code.replace(placeholder, JSON.stringify(aff.value));
         } else {
-            // Heuristic: replace the first occurrence of the previous rendered value
-            // We store the live value on the aff object so we can swap it
-            // Build a snippet that directly applies based on affordance type
             code = _buildAffordanceSnippet(seg, aff);
         }
         if (!code) return;
+
+        console.log('[StepNavigator] affordance apply:', aff.id, '=', aff.value, '\nCode:', code);
         try {
             const fn = new (Object.getPrototypeOf(async function(){}).constructor)(code);
             await fn();
         } catch(err) {
-            console.warn('[StepNavigator] affordance apply error:', err.message);
+            console.error('[StepNavigator] affordance apply error:', err.message, '\nCode:', code);
+            // Surface error briefly in the affordance row label
+            const ctrl = _affordances.querySelector(`[data-aff-id="${aff.id}"]`);
+            if (ctrl) {
+                const row = ctrl.closest('.aff-row');
+                if (row) {
+                    const prev = row.querySelector('.aff-err');
+                    if (prev) prev.remove();
+                    const errEl = document.createElement('span');
+                    errEl.className = 'aff-err';
+                    errEl.textContent = '⚠';
+                    errEl.title = err.message;
+                    row.appendChild(errEl);
+                    setTimeout(() => errEl.remove(), 3000);
+                }
+            }
         }
     }
 
     /**
-     * Build a minimal targeted Office.js snippet for common affordance patterns
-     * without needing to re-run the full segment code.
+     * Build a minimal targeted Office.js snippet for common affordance patterns.
+     * Uses only the first sheet_context range to avoid multi-range getRange() errors.
      */
     function _buildAffordanceSnippet(seg, aff) {
-        const ranges = (seg.sheet_context || []).join(', ') || 'A1';
-        const val    = aff.value;
-        const label  = aff.label.toLowerCase();
+        // Excel getRange() only accepts a single address — never a comma-joined list
+        const firstRange = (seg.sheet_context || ['A1'])[0];
+        const val        = aff.value;
+        const label      = aff.label.toLowerCase();
 
         // Color affordances
         if (aff.type === 'color') {
             if (label.includes('background') || label.includes('fill')) {
-                return `await Excel.run(async (ctx) => { ctx.workbook.worksheets.getActiveWorksheet().getRange("${ranges}").format.fill.color = ${JSON.stringify(val)}; await ctx.sync(); });`;
+                return `await Excel.run(async (ctx) => { ctx.workbook.worksheets.getActiveWorksheet().getRange("${firstRange}").format.fill.color = ${JSON.stringify(val)}; await ctx.sync(); });`;
             }
             if (label.includes('font') || label.includes('text')) {
-                return `await Excel.run(async (ctx) => { ctx.workbook.worksheets.getActiveWorksheet().getRange("${ranges}").format.font.color = ${JSON.stringify(val)}; await ctx.sync(); });`;
+                return `await Excel.run(async (ctx) => { ctx.workbook.worksheets.getActiveWorksheet().getRange("${firstRange}").format.font.color = ${JSON.stringify(val)}; await ctx.sync(); });`;
             }
-            // Default: try fill
-            return `await Excel.run(async (ctx) => { ctx.workbook.worksheets.getActiveWorksheet().getRange("${ranges}").format.fill.color = ${JSON.stringify(val)}; await ctx.sync(); });`;
+            if (label.includes('even') || label.includes('odd')) {
+                const isEven = label.includes('even');
+                return `await Excel.run(async (ctx) => {
+    const s = ctx.workbook.worksheets.getActiveWorksheet();
+    for (let i = 2; i <= 7; i++) {
+        if (i % 2 === ${isEven ? 0 : 1}) s.getRange("A"+i+":E"+i).format.fill.color = ${JSON.stringify(val)};
+    }
+    await ctx.sync();
+});`;
+            }
+            // Default color → fill
+            return `await Excel.run(async (ctx) => { ctx.workbook.worksheets.getActiveWorksheet().getRange("${firstRange}").format.fill.color = ${JSON.stringify(val)}; await ctx.sync(); });`;
         }
 
-        // Number format affordances
+        // Number format dropdown
         if (aff.type === 'dropdown' && (label.includes('format') || label.includes('number'))) {
-            const cells = (seg.sheet_context || ['A1'])[0];
             return `await Excel.run(async (ctx) => {
-                const r = ctx.workbook.worksheets.getActiveWorksheet().getRange("${cells}");
-                r.load("rowCount,columnCount"); await ctx.sync();
-                const fmt = Array.from({length:r.rowCount}, () => Array.from({length:r.columnCount}, () => ${JSON.stringify(val)}));
-                r.numberFormat = fmt; await ctx.sync();
-            });`;
+    const r = ctx.workbook.worksheets.getActiveWorksheet().getRange("${firstRange}");
+    r.load("rowCount,columnCount"); await ctx.sync();
+    r.numberFormat = Array.from({length:r.rowCount}, () => Array(r.columnCount).fill(${JSON.stringify(val)}));
+    await ctx.sync();
+});`;
         }
 
-        // Font size
+        // Font size number
+        // TODO: change them since they are hardcoded
         if (aff.type === 'number' && label.includes('size')) {
-            return `await Excel.run(async (ctx) => { ctx.workbook.worksheets.getActiveWorksheet().getRange("${ranges}").format.font.size = ${Number(val)}; await ctx.sync(); });`;
+            return `await Excel.run(async (ctx) => { ctx.workbook.worksheets.getActiveWorksheet().getRange("${firstRange}").format.font.size = ${Number(val)}; await ctx.sync(); });`;
         }
 
-        // Threshold for conditional coloring — re-run full segment with updated code
+        // Threshold — patch >= N in segment code
         if (aff.type === 'number' && label.includes('threshold')) {
-            // Patch the numeric literal in the segment code
-            return seg.code.replace(/>=\s*\d+/g, `>= ${Number(val)}`);
+            return seg.code.replace(/>=\s*\d+(\.\d+)?/g, `>= ${Number(val)}`);
         }
 
-        // Alignment
+        // Alignment dropdown
         if (aff.type === 'dropdown' && label.includes('alignment')) {
-            return `await Excel.run(async (ctx) => { ctx.workbook.worksheets.getActiveWorksheet().getRange("${ranges}").format.horizontalAlignment = ${JSON.stringify(val)}; await ctx.sync(); });`;
+            return `await Excel.run(async (ctx) => { ctx.workbook.worksheets.getActiveWorksheet().getRange("${firstRange}").format.horizontalAlignment = ${JSON.stringify(val)}; await ctx.sync(); });`;
         }
 
-        // Label/text values — re-run full segment substituting first string literal
+        // Label/text substitution in segment code
         if (aff.type === 'dropdown' && label.includes('label')) {
             return seg.code.replace(/"TOTAL"|"SUM"|"AVERAGE"|"GRAND TOTAL"/, JSON.stringify(val));
         }
 
-        // Row color (even/odd stripe)
-        if (aff.type === 'color' && (label.includes('even') || label.includes('odd'))) {
-            const isEven = label.includes('even');
-            return `await Excel.run(async (ctx) => {
-                const s = ctx.workbook.worksheets.getActiveWorksheet();
-                for (let i = 2; i <= 7; i++) {
-                    if (i % 2 === ${isEven ? 0 : 1}) s.getRange("A"+i+":E"+i).format.fill.color = ${JSON.stringify(val)};
-                }
-                await ctx.sync();
-            });`;
-        }
-
-        // Fallback: re-run full segment code as-is (user changed something, attempt full re-apply)
+        // Fallback: re-run the full segment code unchanged
+        console.warn('[StepNavigator] _buildAffordanceSnippet: no pattern matched for', aff.label, '— falling back to full segment re-run');
         return seg.code;
     }
 
     async function _onEditSend() {
-        const msg    = _editFeedback.value.trim();
-        const seg    = _segments[_currentIndex];
-        const altId  = _selectedAltId;
+        const msg   = _editFeedback.value.trim();
+        const seg   = _segments[_currentIndex];
+        const altId = _selectedAltId;
         _editSend.disabled = true;
+        _editSend.textContent = '…';
         try {
-            const wsCtx     = await WorksheetContext.gather(['sheet']);
-            const updated   = await LLMClient.edit(msg, wsCtx, seg, altId);
-            _segments[_currentIndex] = { ..._segments[_currentIndex], ...updated };
+            const wsCtx = await WorksheetContext.gather(['sheet']);
+            const updated = await LLMClient.edit(msg, wsCtx, seg, altId);
+            const newSeg  = { ..._segments[_currentIndex], ...updated };
+            _segments[_currentIndex] = newSeg;
             _editFeedback.value = '';
+
+            // Execute the updated code against the worksheet
+            if (newSeg.code) {
+                try {
+                    const fn = new (Object.getPrototypeOf(async function(){}).constructor)(newSeg.code);
+                    await fn();
+                    _editSend.textContent = '✓ Applied';
+                    console.log('[StepNavigator] edit applied successfully');
+                } catch (execErr) {
+                    _editSend.textContent = '⚠ Run failed';
+                    console.error('[StepNavigator] edit run error:', execErr.message, '\nCode:', newSeg.code);
+                }
+            }
+
             _render();
             _renderEditPanel();
             _renderGraph();
         } catch(err) {
-            console.error('[StepNavigator] edit error:', err);
+            _editSend.textContent = '⚠ Error';
+            console.error('[StepNavigator] edit LLM error:', err);
         } finally {
-            _editSend.disabled = false;
+            // Reset button label after short delay
+            setTimeout(() => {
+                _editSend.textContent = 'Apply Edit';
+                _editSend.disabled = false;
+            }, 1800);
         }
     }
 
