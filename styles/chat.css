@@ -119,6 +119,14 @@
 
 #typing-indicator.visible { display: flex; }
 
+#typing-label {
+    font-size: 11px;
+    color: var(--color-text-muted);
+    font-style: italic;
+    margin-left: 2px;
+    opacity: 0.8;
+}
+
 .typing-dot {
     width: 5px; height: 5px;
     background: var(--color-text-muted);
