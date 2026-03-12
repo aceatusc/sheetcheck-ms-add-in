@@ -859,19 +859,19 @@ const StepNavigator = (() => {
         });
 
         // Draw alternative edges (dotted, low opacity)
-        _segments.forEach((seg, i) => {
-            (seg.alternatives || []).slice(1).forEach((alt, ai) => {
-                if (i > 0) {
-                    const line = document.createElementNS(SVG_NS, 'line');
-                    line.setAttribute('x1', cx(i-1)); line.setAttribute('y1', cy - 8);
-                    line.setAttribute('x2', cx(i));   line.setAttribute('y2', cy - 8);
-                    line.setAttribute('stroke', 'rgba(245,166,35,0.35)');
-                    line.setAttribute('stroke-width', '1.5');
-                    line.setAttribute('stroke-dasharray', '3,3');
-                    svg.appendChild(line);
-                }
-            });
-        });
+        // _segments.forEach((seg, i) => {
+        //     (seg.alternatives || []).slice(1).forEach((alt, ai) => {
+        //         if (i > 0) {
+        //             const line = document.createElementNS(SVG_NS, 'line');
+        //             line.setAttribute('x1', cx(i-1)); line.setAttribute('y1', cy - 8);
+        //             line.setAttribute('x2', cx(i));   line.setAttribute('y2', cy - 8);
+        //             line.setAttribute('stroke', 'rgba(245,166,35,0.35)');
+        //             line.setAttribute('stroke-width', '1.5');
+        //             line.setAttribute('stroke-dasharray', '3,3');
+        //             svg.appendChild(line);
+        //         }
+        //     });
+        // });
 
         // Draw nodes
         _segments.forEach((seg, i) => {
