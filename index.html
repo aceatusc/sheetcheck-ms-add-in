@@ -56,7 +56,7 @@
 
     <!-- Navigation footer -->
     <div id="step-nav-footer">
-        <button id="step-nav-edit" class="nav-action-btn" hidden>Edit</button>
+        <button id="step-nav-edit" class="nav-action-btn">Edit</button>
         <button id="step-nav-ask"  class="nav-action-btn" hidden>Ask</button>
         <div id="step-nav-pagination">
             <button class="step-nav-arrow" id="step-nav-prev" disabled>&#8592;</button>
@@ -77,10 +77,10 @@
 
     <!-- SF2.1 + SF2.2: Edit panel -->
     <div id="step-nav-edit-panel" style="display:none">
-        <div class="edit-section-label">Alternatives</div>
-        <div id="step-nav-alt-list"></div>
-        <div class="edit-section-label">Affordances</div>
-        <div id="step-nav-affordances"></div>
+        <div class="edit-section-label" hidden>Alternatives</div>
+        <div id="step-nav-alt-list" hidden></div>
+        <div class="edit-section-label" hidden>Affordances</div>
+        <div id="step-nav-affordances" hidden></div>
         <textarea id="step-nav-edit-feedback" rows="2" placeholder="Describe your edit or select an alternative above…"></textarea>
         <button id="step-nav-edit-send">Apply Edit</button>
     </div>
