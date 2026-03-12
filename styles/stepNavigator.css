@@ -33,10 +33,29 @@
 }
 #step-navigator.visible  { opacity:1; pointer-events:all; transform:translateX(-50%) translateY(0); }
 #step-navigator.running  { background:#1e5a7a; animation:navPulse 1.2s infinite; }
+#step-navigator.failed   { background:#7a3a1e; animation:navPulseFail 1.2s infinite; }
 
 @keyframes navPulse {
     0%,100% { box-shadow:0 8px 40px rgba(0,0,0,0.5),0 0 0 0 rgba(79,142,247,0.4); }
     50%      { box-shadow:0 8px 40px rgba(0,0,0,0.5),0 0 0 8px rgba(79,142,247,0); }
+}
+@keyframes navPulseFail {
+    0%,100% { box-shadow:0 8px 40px rgba(0,0,0,0.5),0 0 0 0 rgba(245,100,60,0.5); }
+    50%      { box-shadow:0 8px 40px rgba(0,0,0,0.5),0 0 0 8px rgba(245,100,60,0); }
+}
+
+/* Arrow on failed state */
+#step-navigator.failed::before { border-top-color: #7a3a1e; }
+
+.step-error-msg {
+    margin-top: 5px;
+    font-size: 10.5px;
+    color: #ffb899;
+    background: rgba(0,0,0,0.2);
+    border-radius: 5px;
+    padding: 4px 7px;
+    line-height: 1.4;
+    word-break: break-word;
 }
 
 #step-nav-close {
