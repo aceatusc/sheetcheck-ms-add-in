@@ -40,7 +40,7 @@ const ChatManager = (() => {
             const wsCtx = await WorksheetContext.gather(['selection','sheet']);
 
             // 1. Scaffold rubric
-            _showTyping(true, 'Creating Requirements');
+            _showTyping(true, 'Creating requirements');
             let rubric = null;
             try {
                 rubric = await LLMClient.rubricScaffold(text, wsCtx);
@@ -48,7 +48,7 @@ const ChatManager = (() => {
             } catch(e) { console.warn('[ChatManager] rubric scaffold failed:', e.message); }
 
             // 2. Generate code segments
-            _showTyping(true, 'Generating Solution');
+            _showTyping(true, 'Generating a solution');
             const segments = await LLMClient.generateCode(text, wsCtx, rubric);
             _showTyping(false);
 
