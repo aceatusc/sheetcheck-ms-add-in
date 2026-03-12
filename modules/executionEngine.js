@@ -23,42 +23,43 @@ const ExecutionEngine = (() => {
         _progressStrip.classList.add('visible');
         _log('info', `Starting execution: ${segments.length} segment(s)`);
 
-        let completed = 0;
-
         for (let i = 0; i < segments.length; i++) {
             const seg = segments[i];
 
-            _updateProgress(completed, segments.length);
+            _updateProgress(i, segments.length);
             _log('info', `▶ ${seg.description}`);
 
-            // Show overlay in "running" state while code executes
             StepNavigator.markRunning(i);
 
+            let stepOk = false;
             try {
                 const fn = _makeAsyncFn(seg.code);
                 await fn();
-
-                completed++;
-                _updateProgress(completed, segments.length);
+                stepOk = true;
+                _updateProgress(i + 1, segments.length);
                 _log('ok', `✓ ${seg.description}`);
-
             } catch (err) {
-                _log('err', `✗ ${seg.description}: ${err.message} [${seg.code}]`);
+                _log('err', `✗ ${seg.description}: ${err.message}`);
                 _setStatus('error');
                 console.error('[ExecutionEngine] Segment error:', err);
-                break;
+                // Show yellow card, wait for user to click → before continuing
+                await StepNavigator.markFailed(i, err.message);
+                continue;
             }
 
-            // Hand control to the user — resolves only when they click →
-            await StepNavigator.waitForNext(i);
+            if (stepOk) {
+                await StepNavigator.waitForNext(i);
+            }
         }
 
-        if (completed === segments.length) {
+        if (_statusDot.classList.contains('error')) {
+            _log('info', 'Execution complete with errors — review failed steps above.');
+        } else {
             _setStatus('success');
             _log('ok', 'All segments complete.');
-            // Trigger rubric verification automatically at the end
-            await StepNavigator.showVerifyResults();
         }
+        // Always run rubric verification at the end
+        await StepNavigator.showVerifyResults();
     }
 
     // ── Private helpers ───────────────────────────────────────────────────────
