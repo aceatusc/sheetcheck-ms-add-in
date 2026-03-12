@@ -945,12 +945,12 @@ const StepNavigator = (() => {
 
         _desc.textContent = seg.description;
         // Show error message below explanation when step failed
-        if (isFailed && seg._errorMsg) {
-            _expl.innerHTML = `<span style="opacity:0.75">${seg.explanation || ''}</span>` +
-                `<div class="step-error-msg">⚠ ${seg._errorMsg}</div>`;
-        } else {
-            _expl.textContent = seg.explanation || '';
-        }
+        // if (isFailed && seg._errorMsg) {
+        //     // _expl.innerHTML = `<span style="opacity:0.75">${seg.explanation || ''}</span>` +
+        //     //     `<div class="step-error-msg">⚠ ${seg._errorMsg}</div>`;
+        // } else {
+        _expl.textContent = seg.explanation || '';
+        // }
         _counter.textContent = `${idx+1}/${total}`;
 
         // Q&A pairs
