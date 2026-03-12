@@ -59,7 +59,7 @@ const ExecutionEngine = (() => {
             _log('ok', 'All segments complete.');
         }
         // Always run rubric verification at the end
-        await StepNavigator.showVerifyResults();
+        // await StepNavigator.showVerifyResults();
     }
 
     // ── Private helpers ───────────────────────────────────────────────────────

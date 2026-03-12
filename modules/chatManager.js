@@ -39,24 +39,24 @@ const ChatManager = (() => {
         try {
             const wsCtx = await WorksheetContext.gather(['selection','sheet']);
 
-            // 1. Scaffold rubric
-            _showTyping(true, 'Creating requirements');
-            let rubric = null;
-            try {
-                rubric = await LLMClient.rubricScaffold(text, wsCtx);
-                StepNavigator.setRubric(rubric);
-            } catch(e) { console.warn('[ChatManager] rubric scaffold failed:', e.message); }
+            // // 1. Scaffold rubric
+            // _showTyping(true, 'Creating requirements');
+            // let rubric = null;
+            // try {
+            //     rubric = await LLMClient.rubricScaffold(text, wsCtx);
+            //     StepNavigator.setRubric(rubric);
+            // } catch(e) { console.warn('[ChatManager] rubric scaffold failed:', e.message); }
 
             // 2. Generate code segments
             _showTyping(true, 'Generating a solution');
-            const segments = await LLMClient.generateCode(text, wsCtx, rubric);
+            const segments = await LLMClient.generateCode(text, wsCtx, null);
             _showTyping(false);
 
             // 3. Load segments
             StepNavigator.loadSegments(segments);
 
-            // 4. Show rubric gate
-            await StepNavigator.showRubricGate();
+            // // 4. Show rubric gate
+            // await StepNavigator.showRubricGate();
 
             // 5. Execute
             _appendMessage('agent', `Applying ${segments.length} step(s) to your sheet…`);
