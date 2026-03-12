@@ -42,8 +42,8 @@ const ExecutionEngine = (() => {
                 _log('err', `✗ ${seg.description}: ${err.message}`);
                 _setStatus('error');
                 console.error('[ExecutionEngine] Segment error:', err);
-                // Show yellow card, wait for user to click → before continuing
-                await StepNavigator.markFailed(i, err.message);
+                // Skip the failed steps
+                // await StepNavigator.markFailed(i, err.message);
                 continue;
             }
 
