@@ -34,7 +34,7 @@ const StepNavigator = (() => {
     const _rubricAdd    = document.getElementById('rubric-add-btn');
     const _rubricVerifyPanel = document.getElementById('rubric-verify-results');
     const _chatPanel    = document.getElementById('chat-panel');
-    // const _qaList       = document.getElementById('step-nav-qa-list');
+    const _qaList       = document.getElementById('step-nav-qa-list');
 
     // ── State ─────────────────────────────────────────────────────────────────
     let _segments       = [];
@@ -108,7 +108,7 @@ const StepNavigator = (() => {
         _ranges.innerHTML    = '';
         _desc.textContent    = 'Review and edit the requirements below, then click Start to begin.';
         _expl.textContent    = '';
-        // _qaList.innerHTML    = '';
+        _qaList.innerHTML    = '';
 
         return new Promise(resolve => { _advanceResolve = resolve; });
     }
@@ -131,7 +131,7 @@ const StepNavigator = (() => {
         _desc.textContent    = 'Verifying your spreadsheet against the requirements…';
         _expl.textContent    = '';
         _ranges.innerHTML    = '';
-        // _qaList.innerHTML    = '';
+        _qaList.innerHTML    = '';
         _btnPrev.disabled    = true;
         _btnNext.textContent = '…';
         _btnNext.disabled    = true;
@@ -954,13 +954,13 @@ const StepNavigator = (() => {
         _counter.textContent = `${idx+1}/${total}`;
 
         // Q&A pairs
-        // _qaList.innerHTML = '';
-        // (seg.qa_pairs || []).forEach(pair => {
-        //     const item = document.createElement('details');
-        //     item.className = 'qa-item';
-        //     item.innerHTML = `<summary class="qa-q">${pair.q}</summary><p class="qa-a">${pair.a}</p>`;
-        //     _qaList.appendChild(item);
-        // });
+        _qaList.innerHTML = '';
+        (seg.qa_pairs || []).forEach(pair => {
+            const item = document.createElement('details');
+            item.className = 'qa-item';
+            item.innerHTML = `<summary class="qa-q">${pair.q}</summary><p class="qa-a">${pair.a}</p>`;
+            _qaList.appendChild(item);
+        });
 
         _btnPrev.disabled = _isRunning || idx <= 0;
 
