@@ -46,7 +46,9 @@ const StepNavigator = (() => {
     let _selectedAltId  = null;
     let _rubric         = { hard_requirements: [], soft_requirements: [] };
     let _activePanel    = null; // 'ask' | 'edit' | 'rubric' | null
-    let _isRubricGate   = false; // true while showing rubric-first screen before execution
+    let _isRubricGate   = false;
+    let _isVerifyGate   = false; // true while showing verification results screen
+    let _failedIndices  = new Set(); // indices of segments that errored
 
     // ── Public ────────────────────────────────────────────────────────────────
 
@@ -72,6 +74,8 @@ const StepNavigator = (() => {
         _advanceResolve = null;
         _selectedAltId  = null;
         _askHistory     = [];
+        _failedIndices  = new Set();
+        _isVerifyGate   = false;
         _renderGraph();
     }
 
@@ -111,33 +115,68 @@ const StepNavigator = (() => {
 
     /**
      * Called by ExecutionEngine after all segments complete.
-     * Runs rubric verification and shows results in the open rubric panel.
+     * Shows rubric verification results and waits for the user to click "Done ✓".
+     * @returns {Promise<void>} resolves when user dismisses the screen
      */
     async function showVerifyResults() {
+        // Switch into verify-gate mode: reuse the overlay as a results card
+        _isVerifyGate = true;
+        _overlay.classList.remove('failed', 'running');
+        _overlay.classList.add('visible', 'verify-gate');
+        _chatPanel.classList.add('nav-active');
+
+        // Configure the fixed UI elements
+        _badge.textContent   = 'Requirements Check';
+        _counter.textContent = '';
+        _desc.textContent    = 'Verifying your spreadsheet against the requirements…';
+        _expl.textContent    = '';
+        _ranges.innerHTML    = '';
+        _qaList.innerHTML    = '';
+        _btnPrev.disabled    = true;
+        _btnNext.textContent = '…';
+        _btnNext.disabled    = true;
+        _btnEdit.disabled    = true;
+        _btnAsk.disabled     = true;
+
+        // Open the rubric panel to show results inside it
         _togglePanel('rubric');
-        _rubricVerifyPanel.innerHTML = '<span style="color:rgba(255,255,255,0.6);font-size:11px">Verifying requirements…</span>';
+        _rubricVerifyPanel.innerHTML =
+            '<span style="color:rgba(255,255,255,0.6);font-size:11px">Verifying requirements…</span>';
+
         try {
             const wsCtx = await WorksheetContext.gather(['sheet']);
             const res   = await LLMClient.rubricVerify(_rubric, wsCtx);
-            _rubricVerifyPanel.innerHTML = '<div class="rubric-section-label" style="margin-top:8px">Verification Results</div>';
-            const allItems = [...(_rubric.hard_requirements||[]), ...(_rubric.soft_requirements||[])];
+
+            _rubricVerifyPanel.innerHTML =
+                '<div class="rubric-section-label" style="margin-top:8px">Verification Results</div>';
+
+            const allItems = [
+                ...(_rubric.hard_requirements || []),
+                ...(_rubric.soft_requirements || []),
+            ];
+            let metCount = 0;
+
             (res.results || []).forEach(r => {
                 const item = allItems.find(x => x.id === r.id);
-                const type = (_rubric.hard_requirements||[]).find(x => x.id === r.id) ? 'hard' : 'soft';
                 if (!item) return;
+                const type = (_rubric.hard_requirements || []).find(x => x.id === r.id) ? 'hard' : 'soft';
+                if (r.met) metCount++;
+
                 const row = document.createElement('div');
                 row.className = 'rubric-row';
                 const icon = r.met
-                    ? `<span class="rubric-check" title="${r.reasoning}">✓</span>`
-                    : `<span class="rubric-warn"  title="${r.reasoning}">⚠</span>`;
+                    ? `<span class="rubric-check">✓</span>`
+                    : `<span class="rubric-warn">⚠</span>`;
                 row.innerHTML = `
-                    <span class="rubric-badge rubric-${type}">${type==='hard'?'H':'S'}</span>
-                    <span class="rubric-label">${item.label}</span>
+                    <span class="rubric-badge rubric-${type}">${type === 'hard' ? 'H' : 'S'}</span>
+                    <span class="rubric-label" style="user-select:none">${item.label}</span>
                     ${icon}`;
-                // Clicking the icon expands reasoning
+
+                // Clicking the icon expands reasoning + references
                 const iconEl = row.querySelector('.rubric-check, .rubric-warn');
                 if (iconEl) {
                     iconEl.style.cursor = 'pointer';
+                    iconEl.title = 'Click to expand reasoning';
                     let open = false;
                     iconEl.addEventListener('click', () => {
                         open = !open;
@@ -147,15 +186,31 @@ const StepNavigator = (() => {
                             detail.className = 'rubric-detail';
                             row.appendChild(detail);
                         }
-                        detail.textContent = r.reasoning + (r.references?.length ? ` (${r.references.join(', ')})` : '');
+                        detail.textContent = r.reasoning +
+                            (r.references?.length ? ` (${r.references.join(', ')})` : '');
                         detail.style.display = open ? 'block' : 'none';
                     });
                 }
                 _rubricVerifyPanel.appendChild(row);
             });
-        } catch(err) {
-            _rubricVerifyPanel.innerHTML = `<span style="color:var(--color-error);font-size:11px">${err.message}</span>`;
+
+            // Summary line
+            const total = res.results?.length || 0;
+            _desc.textContent = total
+                ? `${metCount} of ${total} requirement${total !== 1 ? 's' : ''} met`
+                : 'No requirements to verify.';
+
+        } catch (err) {
+            _rubricVerifyPanel.innerHTML =
+                `<span style="color:var(--color-error);font-size:11px">Verification failed: ${err.message}</span>`;
+            _desc.textContent = 'Could not verify requirements.';
         }
+
+        // Enable Done button and wait for user click
+        _btnNext.textContent = 'Done ✓';
+        _btnNext.disabled    = false;
+
+        return new Promise(resolve => { _advanceResolve = resolve; });
     }
 
     function markRunning(index) {
@@ -184,8 +239,35 @@ const StepNavigator = (() => {
         return promise;
     }
 
+    /**
+     * Called after a segment fails. Shows yellow error card and still
+     * waits for the user to click → so they can navigate freely.
+     * @returns {Promise<void>}
+     */
+    async function markFailed(index, errorMsg) {
+        _isRunning     = false;
+        _failedIndices.add(index);
+        // Treat failed step as "reached" so user can navigate back to it
+        _completedUpTo = Math.max(_completedUpTo, index);
+        _currentIndex  = index;
+        _selectedAltId = null;
+        _askHistory    = [];
+        _overlay.classList.remove('running');
+        _overlay.classList.add('visible', 'failed');
+        _chatPanel.classList.add('nav-active');
+
+        // Temporarily show error in explanation area
+        const seg = _segments[index];
+        if (seg) seg._errorMsg = errorMsg;
+
+        const promise = new Promise(resolve => { _advanceResolve = resolve; });
+        _render();
+        _renderGraph();
+        return promise;
+    }
+
     function dismiss() {
-        _overlay.classList.remove('visible', 'running');
+        _overlay.classList.remove('visible', 'running', 'failed');
         _chatPanel.classList.remove('nav-active');
         _closePanel();
     }
@@ -195,38 +277,60 @@ const StepNavigator = (() => {
     function _onNext() {
         if (_isRunning) return;
 
+        // Verify gate: "Done ✓" click — dismiss and resolve
+        if (_isVerifyGate) {
+            _isVerifyGate = false;
+            _overlay.classList.remove('verify-gate');
+            dismiss();
+            if (_advanceResolve) { const r = _advanceResolve; _advanceResolve = null; r(); }
+            return;
+        }
+
         // Rubric gate: "Start →" click
         if (_isRubricGate) {
             _isRubricGate = false;
             _overlay.classList.remove('rubric-gate');
             _closePanel();
-            // Hide overlay momentarily — execution will re-show it via markRunning
             _overlay.classList.remove('visible');
             _chatPanel.classList.remove('nav-active');
             if (_advanceResolve) { const r = _advanceResolve; _advanceResolve = null; r(); }
             return;
         }
 
-        if (_currentIndex < _completedUpTo) { _navigate(_currentIndex + 1); return; }
+        if (_currentIndex < _completedUpTo) {
+            _overlay.classList.remove('failed');
+            _navigate(_currentIndex + 1);
+            return;
+        }
         if (_advanceResolve) {
             const resolve = _advanceResolve;
             _advanceResolve = null;
-            if (_currentIndex >= _segments.length - 1) dismiss();
+            const isLast = _currentIndex >= _segments.length - 1;
+            if (isLast) dismiss();
+            else _overlay.classList.remove('failed');
             resolve();
         }
     }
 
     function _onPrev() {
         if (_isRunning || _currentIndex <= 0) return;
+        _overlay.classList.remove('failed');
         _navigate(_currentIndex - 1);
     }
 
     async function _navigate(targetIndex) {
-        if (targetIndex < 0 || targetIndex > _completedUpTo) return;
+        // Allow visiting any step that has been reached (completed or failed)
+        if (targetIndex < 0 || (targetIndex > _completedUpTo && !_failedIndices.has(targetIndex))) return;
         _currentIndex  = targetIndex;
         _selectedAltId = null;
         _askHistory    = [];
         _closePanel();
+        // Reflect failed state on overlay if navigating to a failed step
+        if (_failedIndices.has(targetIndex)) {
+            _overlay.classList.add('failed');
+        } else {
+            _overlay.classList.remove('failed');
+        }
         _render();
         _renderGraph();
         await _focusRanges(targetIndex);
@@ -235,7 +339,9 @@ const StepNavigator = (() => {
     // Navigate to a node by segment id (from graph click)
     async function _navigateById(segId) {
         const idx = _segments.findIndex(s => s.id === segId);
-        if (idx < 0 || idx > _completedUpTo) return;
+        if (idx < 0) return;
+        // Allow visiting completed or failed steps
+        if (idx > _completedUpTo && !_failedIndices.has(idx)) return;
         await _navigate(idx);
     }
 
@@ -514,10 +620,20 @@ const StepNavigator = (() => {
     function _renderRubric() {
         _rubricHard.innerHTML = '';
         _rubricSoft.innerHTML = '';
-        (_rubric.hard_requirements || []).forEach(r => _appendRubricRow(r, 'hard'));
-        (_rubric.soft_requirements || []).forEach(r => _appendRubricRow(r, 'soft'));
+        const hard = _rubric.hard_requirements || [];
+        const soft = _rubric.soft_requirements || [];
+        hard.forEach(r => _appendRubricRow(r, 'hard'));
+        soft.forEach(r => _appendRubricRow(r, 'soft'));
         _setupDropZone(_rubricHard, 'hard');
         _setupDropZone(_rubricSoft, 'soft');
+
+        // Show hint when both lists are empty
+        if (hard.length === 0 && soft.length === 0) {
+            const hint = document.createElement('div');
+            hint.style.cssText = 'font-size:11px;color:rgba(255,255,255,0.4);padding:8px 2px;text-align:center';
+            hint.textContent = 'No requirements yet — click "+ Add requirement" below.';
+            _rubricSoft.appendChild(hint);
+        }
     }
 
     function _appendRubricRow(req, type, verifyResult = null) {
@@ -770,10 +886,11 @@ const StepNavigator = (() => {
 
             let fill = 'rgba(79,142,247,0.15)';
             let stroke = 'rgba(79,142,247,0.4)';
-            if (i < _completedUpTo) { fill = 'rgba(62,207,142,0.7)'; stroke = '#3ecf8e'; }
-            if (i === _completedUpTo) { fill = '#3ecf8e'; stroke = '#3ecf8e'; }
+            if (_failedIndices.has(i))   { fill = 'rgba(245,100,60,0.8)'; stroke = '#f5643c'; }
+            else if (i < _completedUpTo) { fill = 'rgba(62,207,142,0.7)'; stroke = '#3ecf8e'; }
+            else if (i === _completedUpTo) { fill = '#3ecf8e'; stroke = '#3ecf8e'; }
+            else if (i > _completedUpTo) { fill = 'rgba(79,142,247,0.1)'; stroke = 'rgba(79,142,247,0.25)'; }
             if (i === _currentIndex) { stroke = '#fff'; }
-            if (i > _completedUpTo) { fill = 'rgba(79,142,247,0.1)'; stroke = 'rgba(79,142,247,0.25)'; }
 
             circle.setAttribute('fill', fill);
             circle.setAttribute('stroke', stroke);
@@ -811,10 +928,13 @@ const StepNavigator = (() => {
         const isLast          = idx >= total - 1;
         const isLatest        = idx === _completedUpTo;
         const awaitingAdvance = _advanceResolve !== null;
+        const isFailed        = _failedIndices.has(idx);
 
         _badge.textContent = _isRunning
             ? `Running ${idx+1}/${total}…`
-            : `Step ${idx+1} of ${total}`;
+            : isFailed
+                ? `✗ Step ${idx+1} of ${total} — failed`
+                : `Step ${idx+1} of ${total}`;
 
         _ranges.innerHTML = '';
         (seg.sheet_context || []).forEach(addr => {
@@ -824,7 +944,13 @@ const StepNavigator = (() => {
         });
 
         _desc.textContent = seg.description;
-        _expl.textContent = seg.explanation || '';
+        // Show error message below explanation when step failed
+        if (isFailed && seg._errorMsg) {
+            _expl.innerHTML = `<span style="opacity:0.75">${seg.explanation || ''}</span>` +
+                `<div class="step-error-msg">⚠ ${seg._errorMsg}</div>`;
+        } else {
+            _expl.textContent = seg.explanation || '';
+        }
         _counter.textContent = `${idx+1}/${total}`;
 
         // Q&A pairs
@@ -837,12 +963,20 @@ const StepNavigator = (() => {
         });
 
         _btnPrev.disabled = _isRunning || idx <= 0;
+
         if (_isRunning) {
-            _btnNext.textContent = '…'; _btnNext.disabled = true;
+            _btnNext.textContent = '…';
+            _btnNext.disabled    = true;
+        } else if (isFailed) {
+            // On a failed step: Next advances to next step (or finishes), always enabled
+            _btnNext.textContent = isLast ? '✓' : '→';
+            _btnNext.disabled    = false;
         } else if (isLatest && awaitingAdvance) {
-            _btnNext.textContent = isLast ? '✓' : '→'; _btnNext.disabled = false;
+            _btnNext.textContent = isLast ? '✓' : '→';
+            _btnNext.disabled    = false;
         } else {
-            _btnNext.textContent = '→'; _btnNext.disabled = idx >= _completedUpTo;
+            _btnNext.textContent = '→';
+            _btnNext.disabled    = idx >= _completedUpTo;
         }
 
         _btnEdit.disabled = _isRunning;
@@ -865,5 +999,5 @@ const StepNavigator = (() => {
         }
     }
 
-    return { init, loadSegments, setRubric, showRubricGate, showVerifyResults, markRunning, waitForNext, dismiss };
+    return { init, loadSegments, setRubric, showRubricGate, showVerifyResults, markRunning, markFailed, waitForNext, dismiss };
 })();
