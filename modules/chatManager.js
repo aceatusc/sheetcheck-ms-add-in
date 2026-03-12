@@ -3,10 +3,11 @@
  */
 const ChatManager = (() => {
 
-    const _feed    = document.getElementById('message-feed');
-    const _input   = document.getElementById('chat-input');
-    const _sendBtn = document.getElementById('send-button');
-    const _typing  = document.getElementById('typing-indicator');
+    const _feed       = document.getElementById('message-feed');
+    const _input      = document.getElementById('chat-input');
+    const _sendBtn    = document.getElementById('send-button');
+    const _typing     = document.getElementById('typing-indicator');
+    const _typingLbl  = document.getElementById('typing-label');
 
     let _isBusy = false;
 
@@ -24,7 +25,6 @@ const ChatManager = (() => {
             const panel = document.getElementById('execution-panel');
             const icon  = document.getElementById('execution-toggle-icon');
             panel.classList.toggle('open');
-            // ▲ = collapsed (click to expand), ▼ = expanded (click to collapse)
             icon.textContent = panel.classList.contains('open') ? '▼' : '▲';
         });
     }
@@ -35,26 +35,27 @@ const ChatManager = (() => {
         _setBusy(true);
         _appendMessage('user', text);
         _clearInput();
-        _showTyping(true);
 
         try {
             const wsCtx = await WorksheetContext.gather(['selection','sheet']);
 
-            // 1. Scaffold rubric from user prompt
+            // 1. Scaffold rubric
+            _showTyping(true, 'Creating Requirements');
             let rubric = null;
             try {
                 rubric = await LLMClient.rubricScaffold(text, wsCtx);
                 StepNavigator.setRubric(rubric);
             } catch(e) { console.warn('[ChatManager] rubric scaffold failed:', e.message); }
 
-            // 2. Generate code segments (rubric passed as optional context)
+            // 2. Generate code segments
+            _showTyping(true, 'Generating Solution');
             const segments = await LLMClient.generateCode(text, wsCtx, rubric);
             _showTyping(false);
 
-            // 3. Load segments into navigator so graph renders in rubric gate
+            // 3. Load segments
             StepNavigator.loadSegments(segments);
 
-            // 4. Show rubric gate — await user clicking "Start →"
+            // 4. Show rubric gate
             await StepNavigator.showRubricGate();
 
             // 5. Execute
@@ -81,8 +82,9 @@ const ChatManager = (() => {
         _feed.scrollTop = _feed.scrollHeight;
     }
 
-    function _showTyping(v) {
+    function _showTyping(v, label = '') {
         _typing.classList.toggle('visible', v);
+        if (_typingLbl) _typingLbl.textContent = v && label ? label : '';
         _feed.scrollTop = _feed.scrollHeight;
     }
 
