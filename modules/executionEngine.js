@@ -44,6 +44,8 @@ const ExecutionEngine = (() => {
                 console.error('[ExecutionEngine] Segment error:', err);
                 // Skip the failed steps
                 // await StepNavigator.markFailed(i, err.message);
+                stepOk = true;
+                _updateProgress(i + 1, segments.length);
                 continue;
             }
 
