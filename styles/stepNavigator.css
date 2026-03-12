@@ -185,6 +185,11 @@
 .aff-color { width:32px; height:22px; padding:0; border-radius:4px; cursor:pointer; }
 .aff-number { width:72px; }
 select.aff-control option { background:#1a1d27; }
+.aff-err {
+    font-size:11px; color:#f5a623; cursor:help; flex-shrink:0;
+    animation: fadeOut 3s forwards;
+}
+@keyframes fadeOut { 0%,70% { opacity:1; } 100% { opacity:0; } }
 
 #step-nav-edit-feedback {
     width:100%; background:rgba(0,0,0,0.25); border:1px solid rgba(255,255,255,0.2);
