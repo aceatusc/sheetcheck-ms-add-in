@@ -323,25 +323,27 @@ const StepNavigator = (() => {
 
             // Diagonal fork connector for branch edges that change row
             if (e.isBranch && e.fromRow !== e.toRow) {
+                const forkStroke = e.failed   ? '#f5643c'
+                                 : e.executed ? '#3ecf8e'
+                                 : 'rgba(255,255,255,0.22)';
                 const fork = document.createElementNS(SVG_NS, 'line');
                 fork.setAttribute('x1', x1); fork.setAttribute('y1', y1);
                 fork.setAttribute('x2', x2); fork.setAttribute('y2', y2);
-                fork.setAttribute('stroke',           'rgba(255,255,255,0.22)');
-                fork.setAttribute('stroke-width',     '1.5');
-                fork.setAttribute('stroke-dasharray', '3 2');
+                fork.setAttribute('stroke',       forkStroke);
+                fork.setAttribute('stroke-width', e.executed || e.failed ? '2' : '1.5');
+                if (!e.executed && !e.failed) fork.setAttribute('stroke-dasharray', '3 2');
                 svg.appendChild(fork);
-                return;  // diagonal connector only; no separate horizontal line
+                return;
             }
 
-            // Horizontal edge (main or same-row branch segment)
-            const isBranch = e.isBranch;
+            // Horizontal edge — executed/failed state takes priority over branch styling
             let stroke, width, dash;
-            if (isBranch) {
-                stroke = 'rgba(255,255,255,0.15)'; width = '1.5'; dash = '3 2';
-            } else if (e.failed) {
+            if (e.failed) {
                 stroke = '#f5643c'; width = '2.5'; dash = 'none';
             } else if (e.executed) {
                 stroke = '#3ecf8e'; width = '2'; dash = 'none';
+            } else if (e.isBranch) {
+                stroke = 'rgba(255,255,255,0.15)'; width = '1.5'; dash = '3 2';
             } else {
                 stroke = 'rgba(79,142,247,0.25)'; width = '1.5'; dash = '4 3';
             }
