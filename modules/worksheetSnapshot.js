@@ -105,89 +105,100 @@ const WorksheetSnapshot = (() => {
 
             const { startRow, startCol } = _parseTopLeft(snapshot.address);
 
-            // ── 2. Restore content + formatting per-cell ──────────────────────
-            // Per-cell writes instead of batch 2D array writes because:
-            //   - rng.formulas rejects empty strings "" → throws for whole array
-            //   - Per-cell writes safely skip empty cells
-            // All property sets are queued before the single ctx.sync below.
-            //
-            // _set() wraps each write to produce a detailed error message that
-            // includes the cell address, property name, and exact value rejected.
+            // ── 2. Restore in phases, each followed by ctx.sync() ────────────
+            // Phased syncs isolate which property group Office.js rejects.
+            // The error message from each phase names the phase so we can
+            // pinpoint the exact problem without guessing.
 
-            const _set = (cellAddr, prop, val, writeFn) => {
+            const _phase = async (name, writeFn) => {
                 try {
                     writeFn();
+                    await ctx.sync();
                 } catch (e) {
-                    const display = val === null      ? 'null'
-                                  : val === undefined ? 'undefined'
-                                  : `${typeof val} ${JSON.stringify(String(val)).slice(0, 60)}`;
-                    throw new Error(
-                        `[Snapshot restore] cell ${cellAddr}, prop "${prop}", ` +
-                        `value ${display} — ${e.message}`
-                    );
+                    throw new Error(`[Snapshot restore: ${name}] ${e.message}`);
                 }
             };
 
-            for (let r = 0; r < rows; r++) {
-                for (let c = 0; c < cols; c++) {
-                    const addr    = _cellAddr(startRow + r, startCol + c);
-                    const cell    = sheet.getRange(addr);
-                    const formula = snapshot.formulas[r][c];
-                    const value   = snapshot.values[r][c];
-                    const nf      = snapshot.numberFormat[r][c];
-                    const fill    = snapshot.fill[r][c];
-                    const fc      = snapshot.fontColor[r][c];
-                    const bold    = snapshot.fontBold[r][c];
-                    const size    = snapshot.fontSize[r][c];
-                    const align   = snapshot.alignment[r][c];
-
-                    // Content
-                    if (typeof formula === 'string' && formula.startsWith('=')) {
-                        _set(addr, 'formulas', formula,
-                            () => { cell.formulas = [[formula]]; });
-                    } else if (value !== null && value !== undefined && value !== '') {
-                        _set(addr, 'values', value,
-                            () => { cell.values = [[value]]; });
+            // Phase A: formulas / values
+            await _phase('content', () => {
+                for (let r = 0; r < rows; r++) {
+                    for (let c = 0; c < cols; c++) {
+                        const cell    = sheet.getRange(_cellAddr(startRow + r, startCol + c));
+                        const formula = snapshot.formulas[r][c];
+                        const value   = snapshot.values[r][c];
+                        if (typeof formula === 'string' && formula.startsWith('=')) {
+                            cell.formulas = [[formula]];
+                        } else if (value !== null && value !== undefined && value !== '') {
+                            cell.values = [[value]];
+                        }
                     }
-
-                    // Number format
-                    const nfSafe = (nf === null || nf === undefined || nf === '')
-                                    ? 'General' : String(nf);
-                    _set(addr, 'numberFormat', nfSafe,
-                        () => { cell.numberFormat = [[nfSafe]]; });
-
-                    // Fill
-                    if (fill && typeof fill === 'string' && fill !== 'null') {
-                        _set(addr, 'fill.color', fill,
-                            () => { cell.format.fill.color = fill; });
-                    } else {
-                        cell.format.fill.clear();
-                    }
-
-                    // Font color
-                    const fcSafe = (fc && typeof fc === 'string' && fc !== 'null') ? fc : null;
-                    _set(addr, 'font.color', fcSafe,
-                        () => { cell.format.font.color = fcSafe; });
-
-                    // Font bold
-                    _set(addr, 'font.bold', bold,
-                        () => { cell.format.font.bold = !!bold; });
-
-                    // Font size
-                    if (size) {
-                        _set(addr, 'font.size', size,
-                            () => { cell.format.font.size = size; });
-                    }
-
-                    // Alignment
-                    const alignSafe = (align && VALID_ALIGN.includes(align))
-                                       ? align : 'General';
-                    _set(addr, 'horizontalAlignment', alignSafe,
-                        () => { cell.format.horizontalAlignment = alignSafe; });
                 }
-            }
+            });
 
-            await ctx.sync();
+            // Phase B: numberFormat
+            await _phase('numberFormat', () => {
+                for (let r = 0; r < rows; r++) {
+                    for (let c = 0; c < cols; c++) {
+                        const cell = sheet.getRange(_cellAddr(startRow + r, startCol + c));
+                        const nf   = snapshot.numberFormat[r][c];
+                        const nfSafe = (nf === null || nf === undefined || nf === '')
+                                        ? 'General' : String(nf);
+                        cell.numberFormat = [[nfSafe]];
+                    }
+                }
+            });
+
+            // Phase C: fill
+            await _phase('fill', () => {
+                for (let r = 0; r < rows; r++) {
+                    for (let c = 0; c < cols; c++) {
+                        const cell = sheet.getRange(_cellAddr(startRow + r, startCol + c));
+                        const fill = snapshot.fill[r][c];
+                        if (fill && typeof fill === 'string' && fill !== 'null') {
+                            cell.format.fill.color = fill;
+                        } else {
+                            cell.format.fill.clear();
+                        }
+                    }
+                }
+            });
+
+            // Phase D: font color
+            await _phase('font.color', () => {
+                for (let r = 0; r < rows; r++) {
+                    for (let c = 0; c < cols; c++) {
+                        const cell = sheet.getRange(_cellAddr(startRow + r, startCol + c));
+                        const fc   = snapshot.fontColor[r][c];
+                        const fcSafe = (fc && typeof fc === 'string' && fc !== 'null') ? fc : null;
+                        cell.format.font.color = fcSafe;
+                    }
+                }
+            });
+
+            // Phase E: font bold + size
+            await _phase('font.bold+size', () => {
+                for (let r = 0; r < rows; r++) {
+                    for (let c = 0; c < cols; c++) {
+                        const cell = sheet.getRange(_cellAddr(startRow + r, startCol + c));
+                        cell.format.font.bold = !!snapshot.fontBold[r][c];
+                        const size = snapshot.fontSize[r][c];
+                        if (size) cell.format.font.size = size;
+                    }
+                }
+            });
+
+            // Phase F: alignment
+            await _phase('alignment', () => {
+                for (let r = 0; r < rows; r++) {
+                    for (let c = 0; c < cols; c++) {
+                        const cell      = sheet.getRange(_cellAddr(startRow + r, startCol + c));
+                        const align     = snapshot.alignment[r][c];
+                        const alignSafe = (align && VALID_ALIGN.includes(align))
+                                           ? align : 'General';
+                        cell.format.horizontalAlignment = alignSafe;
+                    }
+                }
+            });
         });
     }
 
