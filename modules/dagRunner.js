@@ -194,16 +194,23 @@ const DagRunner = (() => {
 
         const branched = DagStore.addChain(taskLabel, newSegments, forkNodeId);
 
+        // Save the previous active path as a historical branch so
+        // buildRenderGraph can keep it on its own fixed row.
+        const prevHistory = chain.branchHistory || [];
+        const branchHistory = [
+            ...prevHistory,
+            { nodeIds: chain.nodeIds, edgeIds: chain.edgeIds },
+        ];
+
         const updated = {
             ...chain,
             taskLabel,
-            // Active execution path = prefix up to fork + new branch
             segments:    [...chain.segments.slice(0, fromIndex), ...newSegments],
             nodeIds:     [...chain.nodeIds.slice(0, fromIndex + 1), ...branched.nodeIds.slice(1)],
             edgeIds:     [...chain.edgeIds.slice(0, fromIndex),     ...branched.edgeIds],
-            // Original path stays fixed for graph rendering
             originalNodeIds,
             originalEdgeIds,
+            branchHistory,   // all previous active paths in creation order
             currentNodeId: forkNodeId,
         };
 
@@ -271,80 +278,53 @@ const DagRunner = (() => {
         // ── 1. Assign original chain to row 0 ────────────────────────────
         originalNodeIds.forEach((nid, i) => { layout[nid] = { col: i, row: 0 }; });
 
-        // ── 2. Walk all branches and assign rows ──────────────────────────
+        // ── 2. Assign each historical branch path to its own fixed row ────
         //
-        // A "branch" is a sequence of edges that all lie on the same horizontal
-        // row. A branch starts whenever a node with an existing layout position
-        // has 1+ outgoing non-original edges leading to nodes with NO layout yet.
+        // branchHistory is an array of { nodeIds, edgeIds } saved in applyEdit,
+        // one entry per edit in creation order. Each represents the full active
+        // path at the time of that edit. We assign them rows 1, 2, 3… in order.
         //
-        // We walk the entire DAG in BFS order. For each placed node, we collect
-        // its unplaced non-original outgoing edges. Each one that leads to an
-        // unplaced node starts (or continues) a branch.
+        // For each historical path, only nodes NOT already placed (i.e. not on
+        // the original chain or a previously-placed path) get a new layout entry.
+        // Nodes shared with the original chain (the prefix up to the fork point)
+        // already have layout from step 1 and are skipped.
         //
-        // The distinction between "continue same branch" vs "start new branch":
-        //   - If the parent node was the LAST node placed on a branch (its row > 0
-        //     and it has exactly one unplaced non-original successor), we CONTINUE
-        //     that branch on the same row.
-        //   - If the parent node has MULTIPLE unplaced non-original successors,
-        //     each one gets its own new row (a fork).
-        //   - If the parent is on row 0 (original chain) and has unplaced
-        //     non-original successors, each gets its own new row.
-        //
-        // nodeRow tracks which branch row a node belongs to (0 = original chain).
-        const nodeRow = {};  // nodeId → row
-        originalNodeIds.forEach(nid => { nodeRow[nid] = 0; });
+        // This guarantees: every historical path stays permanently on its
+        // assigned row. The current active path gets the next available row.
 
+        const branchHistory = chain.branchHistory || [];
         let nextRow = 1;
 
-        const queue  = [...originalNodeIds];
-        const queued = new Set(originalNodeIds);
-
-        let head = 0;
-        while (head < queue.length) {
-            const nodeId = queue[head++];
-            const pos    = layout[nodeId];
-            if (!pos) continue;
-
-            // Outgoing non-original edges leading to nodes not yet placed
-            const unplaced = (edgesFrom[nodeId] || [])
-                .filter(e => !originalEdgeSet.has(e.id) && !layout[e.to]);
-
-            if (!unplaced.length) continue;
-
-            // If this node is on a branch row (not row 0) AND has exactly one
-            // unplaced successor, that successor continues on the SAME row.
-            // Otherwise every unplaced successor starts a NEW row.
-            const parentRow = nodeRow[nodeId] ?? 0;
-            const isBranchContinuation = parentRow > 0 && unplaced.length === 1;
-
-            unplaced.forEach((startEdge, i) => {
-                const branchRow = isBranchContinuation ? parentRow : nextRow++;
-
-                // Walk this branch linearly from the start edge
-                let col = pos.col;
-                let cur = startEdge;
-                const seen = new Set();
-
-                while (cur && !seen.has(cur.id)) {
-                    seen.add(cur.id);
-                    col++;
-
-                    if (!layout[cur.to]) {
-                        layout[cur.to] = { col, row: branchRow };
-                        nodeRow[cur.to] = branchRow;
-                    }
-
-                    if (!queued.has(cur.to)) {
-                        queued.add(cur.to);
-                        queue.push(cur.to);
-                    }
-
-                    // Continue straight if the next node is unplaced and there
-                    // is only one non-original successor (no fork yet).
-                    const nexts = (edgesFrom[cur.to] || [])
-                        .filter(ne => !originalEdgeSet.has(ne.id) && !layout[ne.to]);
-                    cur = nexts.length === 1 ? nexts[0] : null;
+        // Assign historical paths first (oldest = lowest row number)
+        branchHistory.forEach(({ nodeIds: pathNodeIds, edgeIds: pathEdgeIds }) => {
+            const row = nextRow++;
+            // Find the fork point: first node in this path not on row 0
+            // (i.e. first node not in originalNodeIds). Nodes before it are
+            // shared with the original chain and already placed.
+            let col = -1;
+            pathNodeIds.forEach(nid => {
+                if (layout[nid]) {
+                    col = layout[nid].col; // last known col from shared prefix
+                    return;
                 }
+                col++;
+                layout[nid] = { col, row };
+            });
+        });
+
+        // ── 3. Assign current active path nodes not yet placed ────────────
+        // The current chain.nodeIds shares a prefix with the original chain
+        // (or a historical branch). Nodes not yet placed are the new branch.
+        {
+            const row = nextRow++;
+            let col = -1;
+            chain.nodeIds.forEach(nid => {
+                if (layout[nid]) {
+                    col = layout[nid].col;
+                    return;
+                }
+                col++;
+                layout[nid] = { col, row };
             });
         }
 
