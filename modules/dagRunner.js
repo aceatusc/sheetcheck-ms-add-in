@@ -295,36 +295,42 @@ const DagRunner = (() => {
         const branchHistory = chain.branchHistory || [];
         let nextRow = 1;
 
-        // Assign historical paths first (oldest = lowest row number)
-        branchHistory.forEach(({ nodeIds: pathNodeIds, edgeIds: pathEdgeIds }) => {
-            const row = nextRow++;
-            // Find the fork point: first node in this path not on row 0
-            // (i.e. first node not in originalNodeIds). Nodes before it are
-            // shared with the original chain and already placed.
-            let col = -1;
+        // Assign historical paths — each forks exactly one row below its parent
+        branchHistory.forEach(({ nodeIds: pathNodeIds }) => {
+            let col       = -1;
+            let parentRow = 0;
             pathNodeIds.forEach(nid => {
                 if (layout[nid]) {
-                    col = layout[nid].col; // last known col from shared prefix
+                    col       = layout[nid].col;
+                    parentRow = layout[nid].row;
                     return;
                 }
                 col++;
+                const row = parentRow + 1;
                 layout[nid] = { col, row };
+                parentRow   = row;
             });
         });
 
         // ── 3. Assign current active path nodes not yet placed ────────────
-        // The current chain.nodeIds shares a prefix with the original chain
-        // (or a historical branch). Nodes not yet placed are the new branch.
+        // Walk chain.nodeIds. For each node not yet in layout, find the last
+        // placed node's row and place this one exactly one row below it.
+        // This ensures every branch connector spans exactly ROW_H regardless
+        // of how many sibling branches exist at the same fork point.
         {
-            const row = nextRow++;
-            let col = -1;
+            let col       = -1;
+            let parentRow = 0;   // row of the last placed (shared prefix) node
             chain.nodeIds.forEach(nid => {
                 if (layout[nid]) {
-                    col = layout[nid].col;
+                    col       = layout[nid].col;
+                    parentRow = layout[nid].row;
                     return;
                 }
+                // First unplaced node: fork one row below the last placed node
                 col++;
+                const row = parentRow + 1;
                 layout[nid] = { col, row };
+                parentRow   = row;  // subsequent unplaced nodes continue on same row
             });
         }
 
