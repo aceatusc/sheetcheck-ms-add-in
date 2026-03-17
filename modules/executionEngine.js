@@ -8,6 +8,7 @@
  */
 const ExecutionEngine = (() => {
 
+    const STORAGE_KEY = 'sheetcheck_dag';
     const _logEl         = document.getElementById('execution-log');
     const _statusDot     = document.getElementById('execution-status-dot');
     const _barFill       = document.getElementById('segment-bar-fill');
@@ -32,6 +33,7 @@ const ExecutionEngine = (() => {
 
             _updateProgress(i, segments.length);
             _log('info', `▶ ${seg.description}`);
+            _log('info', localStorage.getItem(STORAGE_KEY))
 
             StepNavigator.markRunning(i);
 
