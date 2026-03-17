@@ -1,21 +1,15 @@
 /**
  * chatManager.js — chat UI + orchestration pipeline.
- * Now wires into DagStore to record every segment chain as a DAG.
  */
 const ChatManager = (() => {
 
-    const _feed       = document.getElementById('message-feed');
-    const _input      = document.getElementById('chat-input');
-    const _sendBtn    = document.getElementById('send-button');
-    const _typing     = document.getElementById('typing-indicator');
-    const _typingLbl  = document.getElementById('typing-label');
+    const _feed      = document.getElementById('message-feed');
+    const _input     = document.getElementById('chat-input');
+    const _sendBtn   = document.getElementById('send-button');
+    const _typing    = document.getElementById('typing-indicator');
+    const _typingLbl = document.getElementById('typing-label');
 
     let _isBusy = false;
-
-    // Track which DAG node the worksheet is currently at
-    let _currentNodeId = null;
-    // Track the edgeIds for the current running chain so we can mark them executed
-    let _currentEdgeIds = [];
 
     function init() {
         _input.addEventListener('input', () => {
@@ -28,19 +22,12 @@ const ChatManager = (() => {
         });
         _sendBtn.addEventListener('click', _handleSend);
 
-        // Journey button in header
-        document.getElementById('journey-btn')?.addEventListener('click', () => {
-            JourneyPanel.toggle(_currentNodeId);
-        });
-
         document.getElementById('execution-header')?.addEventListener('click', () => {
             const panel = document.getElementById('execution-panel');
             const icon  = document.getElementById('execution-toggle-icon');
             panel.classList.toggle('open');
             icon.textContent = panel.classList.contains('open') ? '▼' : '▲';
         });
-
-        JourneyPanel.init();
     }
 
     async function _handleSend() {
@@ -51,7 +38,7 @@ const ChatManager = (() => {
         _clearInput();
 
         try {
-            const wsCtx = await WorksheetContext.gather(['selection','sheet']);
+            const wsCtx = await WorksheetContext.gather(['selection', 'sheet']);
 
             // 1. Scaffold rubric
             _showTyping(true, 'Creating requirements');
@@ -66,36 +53,15 @@ const ChatManager = (() => {
             const segments = await LLMClient.generateCode(text, wsCtx, rubric);
             _showTyping(false);
 
-            // 3. Record new chain in DAG (branch from current node if we have one)
-            const { rootNodeId, nodeIds, edgeIds } = DagStore.addChain(
-                text, segments, _currentNodeId || null
-            );
-            // Start position is the root node of this chain
-            if (!_currentNodeId) _currentNodeId = rootNodeId;
-            _currentEdgeIds = edgeIds;
-            StepNavigator.setCurrentDagNode(_currentNodeId);
-
-            // 4. Load segments + show rubric gate
+            // 3. Load segments into navigator
             StepNavigator.loadSegments(segments);
+
+            // 4. Show rubric gate — user reviews requirements, clicks Start
             await StepNavigator.showRubricGate();
 
-            // 5. Execute — pass DAG edge tracking callbacks
-            _appendMessage('agent', `Applying ${segments.length} step(s) to your sheet…`);
-            await ExecutionEngine.run(segments, {
-                onStepDone(index) {
-                    const edgeId = _currentEdgeIds[index];
-                    if (edgeId) {
-                        DagStore.markEdgeExecuted(edgeId, false);
-                        _currentNodeId = nodeIds[index + 1];
-                        StepNavigator.setCurrentDagNode(_currentNodeId);
-                        JourneyPanel.refresh(_currentNodeId);
-                    }
-                },
-                onStepFailed(index) {
-                    const edgeId = _currentEdgeIds[index];
-                    if (edgeId) DagStore.markEdgeExecuted(edgeId, true);
-                },
-            });
+            // 5. Execute
+            _appendMessage('agent', `Applying ${segments.length} step(s) to your sheet...`);
+            await ExecutionEngine.run(segments);
 
         } catch(err) {
             _showTyping(false);
@@ -133,16 +99,5 @@ const ChatManager = (() => {
         _input.value = ''; _input.style.height = 'auto';
     }
 
-    /** Called by StepNavigator after an edit produces a new chain. */
-    function onEditChain(newSegments, fromEdgeIndex) {
-        // branchFrom current node at the edit point
-        const { nodeIds, edgeIds } = DagStore.branchFrom(
-            _currentNodeId, '(edit)', newSegments
-        );
-        _currentEdgeIds = edgeIds;
-        JourneyPanel.refresh(_currentNodeId);
-        return { nodeIds, edgeIds };
-    }
-
-    return { init, onEditChain };
+    return { init };
 })();

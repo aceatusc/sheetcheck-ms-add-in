@@ -49,6 +49,8 @@ const StepNavigator = (() => {
     let _isRubricGate   = false;
     let _isVerifyGate   = false; // true while showing verification results screen
     let _failedIndices  = new Set(); // indices of segments that errored
+    // Edit fork history: [{fromIndex, segments}] — old paths replaced by edits, shown dimmed
+    let _branches       = [];
 
     // ── Public ────────────────────────────────────────────────────────────────
 
@@ -76,7 +78,8 @@ const StepNavigator = (() => {
         _askHistory     = [];
         _failedIndices  = new Set();
         _isVerifyGate   = false;
-        _renderGraph();
+        _branches       = [];
+        _render();
     }
 
     function setRubric(rubric) {
@@ -219,7 +222,6 @@ const StepNavigator = (() => {
         _overlay.classList.add('running', 'visible');
         _chatPanel.classList.add('nav-active');
         _render();
-        _renderGraph();
     }
 
     async function waitForNext(index) {
@@ -234,7 +236,6 @@ const StepNavigator = (() => {
 
         const promise = new Promise(resolve => { _advanceResolve = resolve; });
         _render();
-        _renderGraph();
         await _focusRanges(index);
         return promise;
     }
@@ -262,7 +263,6 @@ const StepNavigator = (() => {
 
         const promise = new Promise(resolve => { _advanceResolve = resolve; });
         _render();
-        _renderGraph();
         return promise;
     }
 
@@ -325,29 +325,21 @@ const StepNavigator = (() => {
         _selectedAltId = null;
         _askHistory    = [];
         _closePanel();
-        // Reflect failed state on overlay if navigating to a failed step
         if (_failedIndices.has(targetIndex)) {
             _overlay.classList.add('failed');
         } else {
             _overlay.classList.remove('failed');
         }
         _render();
-        _renderGraph();
         await _focusRanges(targetIndex);
     }
 
-    // Navigate to a node by segment id (legacy — superseded by _navigateToNode)
+    // Navigate to a segment by its id — called from graph edge click
     async function _navigateById(segId) {
         const idx = _segments.findIndex(s => s.id === segId);
         if (idx < 0) return;
         if (idx > _completedUpTo && !_failedIndices.has(idx)) return;
         await _navigate(idx);
-    }
-
-    /** Called by ChatManager to keep the in-navigator DAG in sync. */
-    function setCurrentDagNode(nodeId) {
-        _dagCurrentNodeId = nodeId;
-        _renderGraph();
     }
 
     // ── Panels ────────────────────────────────────────────────────────────────
@@ -612,39 +604,50 @@ const StepNavigator = (() => {
     }
 
     async function _onEditSend() {
-        const msg   = _editFeedback.value.trim();
-        const seg   = _segments[_currentIndex];
-        const altId = _selectedAltId;
-        _editSend.disabled = true;
+        const msg            = _editFeedback.value.trim();
+        const seg            = _segments[_currentIndex];
+        const remaining      = _segments.slice(_currentIndex + 1);  // tail after edit point
+        _editSend.disabled   = true;
         _editSend.textContent = '…';
         try {
-            const wsCtx = await WorksheetContext.gather(['sheet']);
-            const updated = await LLMClient.edit(msg, wsCtx, seg, altId);
-            const newSeg  = { ..._segments[_currentIndex], ...updated };
-            _segments[_currentIndex] = newSeg;
+            const wsCtx  = await WorksheetContext.gather(['sheet']);
+            // /edit now returns an array: the edited step + regenerated remainder
+            const newChain = await LLMClient.edit(msg, wsCtx, seg, remaining);
             _editFeedback.value = '';
 
-            // Execute the updated code against the worksheet
-            if (newSeg.code) {
+            // Save the old tail as a visual branch before replacing it
+            if (remaining.length > 0) {
+                _branches.push({ fromIndex: _currentIndex, segments: remaining });
+            }
+
+            // Splice new chain into _segments from current index onward
+            _segments = [..._segments.slice(0, _currentIndex), ...newChain];
+
+            // Mark completed state: only steps before edit point still counted
+            _completedUpTo = Math.min(_completedUpTo, _currentIndex - 1);
+            // Clear failure flags on spliced-out indices
+            _failedIndices = new Set([..._failedIndices].filter(i => i < _currentIndex));
+
+            // Execute the first segment of the new chain (the edited step itself)
+            const firstSeg = _segments[_currentIndex];
+            if (firstSeg?.code) {
                 try {
-                    const fn = new (Object.getPrototypeOf(async function(){}).constructor)(newSeg.code);
+                    const fn = new (Object.getPrototypeOf(async function(){}).constructor)(firstSeg.code);
                     await fn();
+                    _completedUpTo = Math.max(_completedUpTo, _currentIndex);
                     _editSend.textContent = '✓ Applied';
-                    console.log('[StepNavigator] edit applied successfully');
                 } catch (execErr) {
                     _editSend.textContent = '⚠ Run failed';
-                    console.error('[StepNavigator] edit run error:', execErr.message, '\nCode:', newSeg.code);
+                    console.error('[StepNavigator] edit run error:', execErr.message);
                 }
             }
 
             _render();
             _renderEditPanel();
-            _renderGraph();
         } catch(err) {
             _editSend.textContent = '⚠ Error';
             console.error('[StepNavigator] edit LLM error:', err);
         } finally {
-            // Reset button label after short delay
             setTimeout(() => {
                 _editSend.textContent = 'Apply Edit';
                 _editSend.disabled = false;
@@ -860,224 +863,198 @@ const StepNavigator = (() => {
         sel.addRange(range);
     }
 
-    // ── DAG Graph (replaces SF1.2 dependency graph) ───────────────────────────
+    // ── Graph — edge-focused DAG with branch support ──────────────────────────
     //
-    // Renders the DagStore graph inside the step navigator overlay.
-    // Nodes  = worksheet states; edges = code segments.
-    // Layout: left→right by depth, branches go downward.
-    // Clicking any reached node navigates to it silently (undo/forward traversal).
+    // Model: nodes are implicit worksheet states (indices 0..N), edges are
+    // segments. "Viewing step i" means edge i (node i → node i+1) is active.
+    //
+    // Layout: main path is a horizontal row. Each edit fork is drawn as a
+    // separate row below the branch point, connected by a curved path.
+    // Clicking any reached edge navigates to it.
 
     function _renderGraph() {
         if (!_graphEl) return;
         _graphEl.innerHTML = '';
 
-        // Graceful fallback when DagStore isn't loaded yet
-        if (typeof DagStore === 'undefined') return;
+        const total = _segments.length;
+        if (total === 0) return;
 
-        const { nodes, edges } = DagStore.getAll();
-        if (nodes.length === 0) return;
+        const SVG_NS  = 'http://www.w3.org/2000/svg';
+        const NODE_R  = 5;   // state dot radius
+        const EDGE_W  = 28;  // horizontal space per edge
+        const ROW_H   = 26;  // vertical space between rows
+        const PAD_X   = 10;
+        const PAD_Y   = 10;
 
-        const SVG_NS = 'http://www.w3.org/2000/svg';
-        const NODE_R = 6;
-        const COL_W  = 30;   // tight horizontal spacing for small overlay
-        const ROW_H  = 22;   // vertical spacing for branches
-        const PAD_X  = 10;
-        const PAD_Y  = 10;
+        // ── Build rows ────────────────────────────────────────────────────────
+        // Row 0 = active path (_segments). Row 1..N = branches (oldest first).
+        // Each row: { segs[], fromIndex (where it branches from row 0), rowY }
+        const rows = [];
+        rows.push({ segs: _segments, fromIndex: -1 });
+        _branches.forEach(b => rows.push({ segs: b.segments, fromIndex: b.fromIndex }));
 
-        // ── Layout ─────────────────────────────────────────────────────────────
-        const fwd = {}, bwd = {};
-        edges.forEach(e => {
-            (fwd[e.from] = fwd[e.from] || []).push(e.to);
-            (bwd[e.to]   = bwd[e.to]   || []).push(e.from);
-        });
-
-        const allToIds = new Set(edges.map(e => e.to));
-        const roots    = nodes.filter(n => !allToIds.has(n.id));
-        const pos      = {};
-        let nextRow    = 0;
-
-        function bfsFrom(rootId, startRow) {
-            const queue = [{ id: rootId, col: 0, row: startRow }];
-            const seen  = new Set();
-            while (queue.length) {
-                const { id, col, row } = queue.shift();
-                if (seen.has(id)) continue;
-                seen.add(id);
-                if (!pos[id]) pos[id] = { col, row };
-                (fwd[id] || []).forEach((childId, ci) => {
-                    if (seen.has(childId)) return;
-                    const childRow = ci === 0 ? row : nextRow++;
-                    queue.push({ id: childId, col: col + 1, row: childRow });
-                });
-            }
-        }
-        roots.forEach(r => { bfsFrom(r.id, nextRow); nextRow++; });
-        nodes.forEach(n => { if (!pos[n.id]) pos[n.id] = { col: 0, row: nextRow++ }; });
-
-        const maxCol = Math.max(...Object.values(pos).map(p => p.col));
-        const maxRow = Math.max(...Object.values(pos).map(p => p.row));
-        const svgW   = PAD_X * 2 + (maxCol + 1) * COL_W;
-        const svgH   = PAD_Y * 2 + (maxRow + 1) * ROW_H;
+        const maxEdges = Math.max(...rows.map(r => r.segs.length));
+        // Node count for main row = total + 1; branches may be shorter
+        const mainNodes = total + 1;
+        const svgW = PAD_X * 2 + mainNodes * EDGE_W;
+        const svgH = PAD_Y * 2 + rows.length * ROW_H;
 
         const svg = document.createElementNS(SVG_NS, 'svg');
         svg.setAttribute('viewBox', `0 0 ${svgW} ${svgH}`);
         svg.setAttribute('width', svgW);
         svg.setAttribute('height', svgH);
-        svg.style.overflow = 'visible';
 
-        const cx = id => PAD_X + pos[id].col * COL_W;
-        const cy = id => PAD_Y + pos[id].row * ROW_H;
+        // x position of node i in the main row
+        const nodeX = i => PAD_X + i * EDGE_W;
+        // y centre of a row
+        const rowY  = r => PAD_Y + r * ROW_H + ROW_H / 2;
 
-        // ── Edges ───────────────────────────────────────────────────────────────
-        edges.forEach(e => {
-            const x1 = cx(e.from), y1 = cy(e.from);
-            const x2 = cx(e.to),   y2 = cy(e.to);
+        // ── Draw each row ─────────────────────────────────────────────────────
+        rows.forEach((row, rowIdx) => {
+            const isBranch = rowIdx > 0;
+            const y        = rowY(rowIdx);
+            const segs     = row.segs;
+            const nodeCount = segs.length + 1;
 
-            let d;
-            if (y1 === y2) {
-                d = `M${x1} ${y1} L${x2} ${y2}`;
-            } else {
+            // For a branch row, start x offset matches where it forks from main
+            const startNodeIndex = isBranch ? row.fromIndex + 1 : 0;
+
+            // Draw state nodes
+            for (let ni = 0; ni < nodeCount; ni++) {
+                const absIdx = startNodeIndex + ni;
+                const x      = nodeX(absIdx);
+                const dot    = document.createElementNS(SVG_NS, 'circle');
+                dot.setAttribute('cx', x);
+                dot.setAttribute('cy', y);
+                dot.setAttribute('r', NODE_R);
+                dot.setAttribute('fill', isBranch
+                    ? 'rgba(255,255,255,0.1)'
+                    : (absIdx <= _completedUpTo + 1
+                        ? 'rgba(255,255,255,0.35)'
+                        : 'rgba(255,255,255,0.08)'));
+                dot.setAttribute('stroke', isBranch
+                    ? 'rgba(255,255,255,0.18)'
+                    : 'rgba(255,255,255,0.4)');
+                dot.setAttribute('stroke-width', '1');
+                svg.appendChild(dot);
+            }
+
+            // Draw branch connector curve from main row to branch start
+            if (isBranch) {
+                const fx  = nodeX(row.fromIndex + 1);
+                const fy  = rowY(0);
+                const tx  = nodeX(startNodeIndex);
+                const ty  = y;
+                const mid = (fy + ty) / 2;
+                const path = document.createElementNS(SVG_NS, 'path');
+                path.setAttribute('d', `M${fx} ${fy} C${fx} ${mid} ${tx} ${mid} ${tx} ${ty}`);
+                path.setAttribute('fill', 'none');
+                path.setAttribute('stroke', 'rgba(255,255,255,0.12)');
+                path.setAttribute('stroke-width', '1.5');
+                path.setAttribute('stroke-dasharray', '3 2');
+                svg.appendChild(path);
+            }
+
+            // Draw edges (one per segment in this row)
+            segs.forEach((seg, edgeIdx) => {
+                const absEdgeIdx = isBranch ? 0 : edgeIdx; // for status checks use _segments index
+                const trueIdx    = isBranch ? -1 : edgeIdx; // -1 = branch edge, not navigable
+                const x1 = nodeX(startNodeIndex + edgeIdx);
+                const x2 = nodeX(startNodeIndex + edgeIdx + 1);
                 const mx = (x1 + x2) / 2;
-                d = `M${x1} ${y1} C${mx} ${y1} ${mx} ${y2} ${x2} ${y2}`;
-            }
 
-            const path = document.createElementNS(SVG_NS, 'path');
-            path.setAttribute('d', d);
-            path.setAttribute('fill', 'none');
-            path.setAttribute('stroke',
-                e.failed   ? 'rgba(245,100,60,0.6)' :
-                e.executed ? 'rgba(79,142,247,0.7)'  :
-                             'rgba(79,142,247,0.2)');
-            path.setAttribute('stroke-width', e.executed ? '1.5' : '1');
-            path.setAttribute('stroke-dasharray', e.executed ? 'none' : '3 2');
+                const isActive   = !isBranch && edgeIdx === _currentIndex;
+                const isExecuted = !isBranch && edgeIdx <= _completedUpTo;
+                const isFailed   = !isBranch && _failedIndices.has(edgeIdx);
+                const isRunning  = !isBranch && edgeIdx === _currentIndex && _isRunning;
+                const isReachable = !isBranch && (isExecuted || isFailed);
 
-            const title = document.createElementNS(SVG_NS, 'title');
-            title.textContent = e.segment?.description || '';
-            path.appendChild(title);
-            svg.appendChild(path);
+                // Edge line
+                const line = document.createElementNS(SVG_NS, 'line');
+                line.setAttribute('x1', x1); line.setAttribute('y1', y);
+                line.setAttribute('x2', x2); line.setAttribute('y2', y);
+
+                let stroke, width, dash;
+                if (isBranch) {
+                    stroke = 'rgba(255,255,255,0.15)'; width = '1.5'; dash = '3 2';
+                } else if (isFailed) {
+                    stroke = '#f5643c'; width = isActive ? '3' : '2'; dash = 'none';
+                } else if (isActive && isExecuted) {
+                    stroke = '#fff'; width = '3'; dash = 'none';
+                } else if (isExecuted) {
+                    stroke = '#3ecf8e'; width = '2'; dash = 'none';
+                } else if (isActive) {
+                    stroke = '#4f8ef7'; width = '3'; dash = 'none';  // running/current unexecuted
+                } else {
+                    stroke = 'rgba(79,142,247,0.2)'; width = '1.5'; dash = '4 3';
+                }
+
+                line.setAttribute('stroke', stroke);
+                line.setAttribute('stroke-width', width);
+                if (dash !== 'none') line.setAttribute('stroke-dasharray', dash);
+                svg.appendChild(line);
+
+                // Running pulse on active edge
+                if (isRunning) {
+                    const pulse = document.createElementNS(SVG_NS, 'line');
+                    pulse.setAttribute('x1', x1); pulse.setAttribute('y1', y);
+                    pulse.setAttribute('x2', x2); pulse.setAttribute('y2', y);
+                    pulse.setAttribute('stroke', 'rgba(79,142,247,0.5)');
+                    pulse.setAttribute('stroke-width', '6');
+                    const anim = document.createElementNS(SVG_NS, 'animate');
+                    anim.setAttribute('attributeName', 'stroke-opacity');
+                    anim.setAttribute('values', '0.5;0.1;0.5');
+                    anim.setAttribute('dur', '1s');
+                    anim.setAttribute('repeatCount', 'indefinite');
+                    pulse.appendChild(anim);
+                    svg.appendChild(pulse);
+                }
+
+                // Active edge glow highlight
+                if (isActive && !isBranch) {
+                    const glow = document.createElementNS(SVG_NS, 'line');
+                    glow.setAttribute('x1', x1); glow.setAttribute('y1', y);
+                    glow.setAttribute('x2', x2); glow.setAttribute('y2', y);
+                    glow.setAttribute('stroke', isFailed ? 'rgba(245,100,60,0.3)' : 'rgba(255,255,255,0.2)');
+                    glow.setAttribute('stroke-width', '8');
+                    glow.setAttribute('stroke-linecap', 'round');
+                    svg.insertBefore(glow, line); // insert behind the main line
+                }
+
+                // Invisible hit-target for clicks (wider than visible line)
+                if (isReachable) {
+                    const hit = document.createElementNS(SVG_NS, 'line');
+                    hit.setAttribute('x1', x1); hit.setAttribute('y1', y);
+                    hit.setAttribute('x2', x2); hit.setAttribute('y2', y);
+                    hit.setAttribute('stroke', 'transparent');
+                    hit.setAttribute('stroke-width', '14');
+                    hit.style.cursor = 'pointer';
+                    hit.addEventListener('click', () => _navigate(edgeIdx));
+                    const title = document.createElementNS(SVG_NS, 'title');
+                    title.textContent = `${edgeIdx + 1}. ${seg.description}`;
+                    hit.appendChild(title);
+                    svg.appendChild(hit);
+                }
+
+                // Step number label on active edge
+                if (isActive && !isBranch) {
+                    const label = document.createElementNS(SVG_NS, 'text');
+                    label.setAttribute('x', mx);
+                    label.setAttribute('y', y - NODE_R - 3);
+                    label.setAttribute('text-anchor', 'middle');
+                    label.setAttribute('font-size', '8');
+                    label.setAttribute('fill', 'rgba(255,255,255,0.7)');
+                    label.setAttribute('font-family', 'Segoe UI, system-ui, sans-serif');
+                    label.textContent = `${edgeIdx + 1}`;
+                    svg.appendChild(label);
+                }
+            });
         });
 
-        // ── Nodes ───────────────────────────────────────────────────────────────
-        nodes.forEach(node => {
-            const x          = cx(node.id);
-            const y          = cy(node.id);
-            const isCurrent  = node.id === _dagCurrentNodeId;
-            const inEdge     = edges.find(e => e.to === node.id);
-            const isExecuted = node.isRoot || (inEdge && inEdge.executed);
-            const isFailed   = inEdge && inEdge.failed;
-            const isReachable = isExecuted; // can navigate to executed nodes
-
-            const g = document.createElementNS(SVG_NS, 'g');
-            g.style.cursor = isReachable ? 'pointer' : 'default';
-
-            // Current node halo
-            if (isCurrent) {
-                const halo = document.createElementNS(SVG_NS, 'circle');
-                halo.setAttribute('cx', x); halo.setAttribute('cy', y);
-                halo.setAttribute('r', NODE_R + 3);
-                halo.setAttribute('fill', 'none');
-                halo.setAttribute('stroke', '#fff');
-                halo.setAttribute('stroke-width', '1.5');
-                halo.setAttribute('opacity', '0.5');
-                g.appendChild(halo);
-            }
-
-            // Running pulse on current node during execution
-            if (isCurrent && _isRunning) {
-                const pulse = document.createElementNS(SVG_NS, 'circle');
-                pulse.setAttribute('cx', x); pulse.setAttribute('cy', y);
-                pulse.setAttribute('r', NODE_R);
-                pulse.setAttribute('fill', 'rgba(79,142,247,0.3)');
-                pulse.setAttribute('stroke', 'none');
-                const anim = document.createElementNS(SVG_NS, 'animate');
-                anim.setAttribute('attributeName', 'r');
-                anim.setAttribute('values', `${NODE_R};${NODE_R + 5};${NODE_R}`);
-                anim.setAttribute('dur', '1.2s');
-                anim.setAttribute('repeatCount', 'indefinite');
-                pulse.appendChild(anim);
-                g.appendChild(pulse);
-            }
-
-            const circle = document.createElementNS(SVG_NS, 'circle');
-            circle.setAttribute('cx', x); circle.setAttribute('cy', y);
-            circle.setAttribute('r', NODE_R);
-
-            let fill, stroke;
-            if (isFailed)        { fill = 'rgba(245,100,60,0.85)'; stroke = '#f5643c'; }
-            else if (isCurrent)  { fill = '#4f8ef7';               stroke = '#fff'; }
-            else if (isExecuted) { fill = 'rgba(62,207,142,0.7)';  stroke = '#3ecf8e'; }
-            else                 { fill = 'rgba(79,142,247,0.08)'; stroke = 'rgba(79,142,247,0.25)'; }
-
-            circle.setAttribute('fill', fill);
-            circle.setAttribute('stroke', stroke);
-            circle.setAttribute('stroke-width', isCurrent ? '2' : '1.5');
-            g.appendChild(circle);
-
-            // Tooltip
-            const title = document.createElementNS(SVG_NS, 'title');
-            title.textContent = (node.isRoot ? '📌 Start' : node.label) +
-                (isCurrent ? ' (current)' : '') +
-                (!isReachable ? ' — not yet reached' : '');
-            g.appendChild(title);
-
-            // Click to navigate
-            if (isReachable && !isCurrent) {
-                g.addEventListener('click', () => _navigateToNode(node.id));
-            }
-
-            svg.appendChild(g);
-        });
-
-        _graphEl.appendChild(svg);
-        // Make the graph area scrollable horizontally if wide
+        _graphEl.innerHTML = '';
         _graphEl.style.overflowX = 'auto';
+        _graphEl.appendChild(svg);
     }
-
-    /**
-     * Navigate the worksheet to a DAG node by traversing undo/forward edges.
-     * Replaces the old _navigateById(segId).
-     */
-    async function _navigateToNode(targetNodeId) {
-        if (!_dagCurrentNodeId || targetNodeId === _dagCurrentNodeId) return;
-        const path = DagStore.findPath(_dagCurrentNodeId, targetNodeId);
-        if (!path) { console.warn('[StepNavigator] no DAG path to node', targetNodeId); return; }
-
-        _isRunning = true;
-        _render();
-        _renderGraph();
-
-        try {
-            for (const step of path) {
-                const code = step.direction === 'forward'
-                    ? step.edge.segment?.code
-                    : step.edge.segment?.undo_code;
-                if (code) {
-                    const fn = new (Object.getPrototypeOf(async function(){}).constructor)(code);
-                    await fn();
-                }
-            }
-            _dagCurrentNodeId = targetNodeId;
-
-            // Show the segment card for the incoming edge of the target node
-            const inEdge = DagStore.getIncomingEdge(targetNodeId);
-            if (inEdge?.segment) {
-                const segIdx = _segments.findIndex(s => s.id === inEdge.segment.id);
-                if (segIdx >= 0) {
-                    _currentIndex = segIdx;
-                }
-            }
-        } catch(err) {
-            console.error('[StepNavigator] DAG navigation error:', err);
-        }
-
-        _isRunning = false;
-        _render();
-        _renderGraph();
-    }
-
-    // Keep a local mirror of which DAG node the sheet is currently at.
-    // ChatManager sets this via setCurrentDagNode().
-    let _dagCurrentNodeId = null;
 
     // ── Render card ───────────────────────────────────────────────────────────
 
@@ -1143,6 +1120,9 @@ const StepNavigator = (() => {
 
         _btnEdit.disabled = _isRunning;
         _btnAsk.disabled  = _isRunning;
+
+        // Always redraw graph in sync with card state — single update path
+        _renderGraph();
     }
 
     // ── Range focus ───────────────────────────────────────────────────────────
@@ -1161,5 +1141,5 @@ const StepNavigator = (() => {
         }
     }
 
-    return { init, loadSegments, setRubric, showRubricGate, showVerifyResults, markRunning, markFailed, waitForNext, dismiss, setCurrentDagNode };
+    return { init, loadSegments, setRubric, showRubricGate, showVerifyResults, markRunning, markFailed, waitForNext, dismiss };
 })();
