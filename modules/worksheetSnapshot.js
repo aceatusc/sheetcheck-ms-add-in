@@ -70,8 +70,8 @@ const WorksheetSnapshot = (() => {
                     formulas:     _copy2d(used.formulas),
                     values:       _copy2d(used.values),
                     numberFormat: _copy2d(used.numberFormat),
-                    fill:         _expand(used.format.fill.color,          rows, cols),
-                    fontColor:    _expand(used.format.font.color,          rows, cols),
+                    fill:         _expandColor(used.format.fill.color,     rows, cols),
+                    fontColor:    _expandColor(used.format.font.color,     rows, cols),
                     fontBold:     _expand(used.format.font.bold,           rows, cols),
                     fontSize:     _expand(used.format.font.size,           rows, cols),
                     alignment:    _expand(used.format.horizontalAlignment, rows, cols),
@@ -149,12 +149,14 @@ const WorksheetSnapshot = (() => {
             });
 
             // Phase C: fill
+            // Values already sanitized to '#RRGGBB' or '' at capture time.
+            // Use fill.clear() for '' to properly remove fill (setting color='' throws).
             await _phase('fill', () => {
                 for (let r = 0; r < rows; r++) {
                     for (let c = 0; c < cols; c++) {
                         const cell = sheet.getRange(_cellAddr(startRow + r, startCol + c));
                         const fill = snapshot.fill[r][c];
-                        if (fill && typeof fill === 'string' && fill !== 'null') {
+                        if (fill) {
                             cell.format.fill.color = fill;
                         } else {
                             cell.format.fill.clear();
@@ -164,13 +166,13 @@ const WorksheetSnapshot = (() => {
             });
 
             // Phase D: font color
+            // Values already sanitized to '#RRGGBB' or '' at capture time.
+            // Write '' (not null) to reset to theme/automatic color.
             await _phase('font.color', () => {
                 for (let r = 0; r < rows; r++) {
                     for (let c = 0; c < cols; c++) {
                         const cell = sheet.getRange(_cellAddr(startRow + r, startCol + c));
-                        const fc   = snapshot.fontColor[r][c];
-                        const fcSafe = (fc && typeof fc === 'string' && fc !== 'null') ? fc : null;
-                        cell.format.font.color = fcSafe;
+                        cell.format.font.color = snapshot.fontColor[r][c] || '';
                     }
                 }
             });
@@ -220,6 +222,12 @@ const WorksheetSnapshot = (() => {
             Array.from({ length: cols }, () => value));
     }
 
+    /** Like _expand but also sanitizes every value through _sanitizeColor. */
+    function _expandColor(value, rows, cols) {
+        const grid = _expand(value, rows, cols);
+        return grid.map(row => row.map(v => _sanitizeColor(v)));
+    }
+
     function _stripSheet(addr) {
         const i = addr?.indexOf('!');
         return (i >= 0) ? addr.slice(i + 1) : (addr || '');
@@ -249,6 +257,30 @@ const WorksheetSnapshot = (() => {
     function _copy2d(v) {
         if (Array.isArray(v)) return v.map(r => Array.isArray(r) ? [...r] : r);
         return v;
+    }
+
+    /**
+     * Sanitize a color value read from Office.js into a form it will accept back.
+     *
+     * Office.js reads font.color / fill.color and may return:
+     *   "#RRGGBB"   — valid, write as-is
+     *   "FFRRGGBB"  — 8-char ARGB without #; extract last 6 chars → "#RRGGBB"
+     *   null        — theme/automatic color; write "" to reset
+     *   ""          — already reset; write "" to reset
+     *   anything else — unknown; write "" to reset
+     *
+     * @param {string|null} color
+     * @param {string} fallback — "" to reset, or a default hex like "#000000"
+     */
+    function _sanitizeColor(color, fallback = '') {
+        if (!color || typeof color !== 'string') return fallback;
+        // Already valid #RRGGBB
+        if (/^#[0-9A-Fa-f]{6}$/.test(color)) return color;
+        // 8-char ARGB "AARRGGBB" — drop the alpha channel prefix
+        if (/^[0-9A-Fa-f]{8}$/.test(color)) return '#' + color.slice(2);
+        // 6-char RGB without # — add it
+        if (/^[0-9A-Fa-f]{6}$/.test(color)) return '#' + color;
+        return fallback;
     }
 
     function _warn(msg) {
