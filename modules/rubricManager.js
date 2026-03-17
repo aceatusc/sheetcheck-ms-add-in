@@ -68,6 +68,7 @@ const RubricManager = (() => {
      * Registers a one-shot gate callback on StepNavigator so the next →
      * click resolves the promise — no shared boolean flag needed between modules.
      */
+    /** Show the gate UI immediately (non-blocking). */
     function showRubricGate() {
         _lockNav();
         _overlay.classList.add('visible', 'rubric-gate');
@@ -83,10 +84,12 @@ const RubricManager = (() => {
         _desc.textContent    = 'Review and edit the requirements below, then click Start to begin.';
         _expl.textContent    = '';
         _qaList.innerHTML    = '';
+    }
 
+    /** Returns a promise that resolves when user clicks Start →. */
+    function waitForGate() {
         return new Promise(resolve => {
             _advanceResolve = resolve;
-            // Hand off to StepNavigator: the very next → click should fire this teardown
             StepNavigator.setGateMode(() => {
                 if (_advanceResolve) { const r = _advanceResolve; _advanceResolve = null; r(); }
                 StepNavigator.dismissGate('rubric');
@@ -348,5 +351,5 @@ const RubricManager = (() => {
         _btnAsk.disabled  = true;
     }
 
-    return { init, setRubric, getRubric, showPanel, showRubricGate, showVerifyResults };
+    return { init, setRubric, getRubric, showPanel, showRubricGate, waitForGate, showVerifyResults };
 })();

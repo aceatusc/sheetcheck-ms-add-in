@@ -129,6 +129,17 @@
     border-color: var(--color-accent);
     background: var(--color-accent);
     color: white;
+    padding: 9px 18px;
+    font-size: 13px;
+    font-weight: 600;
+    border-radius: var(--radius-md);
+    letter-spacing: 0.02em;
+    box-shadow: 0 2px 12px rgba(79,142,247,0.35);
+}
+.message-action-btn.primary:hover {
+    opacity: 1;
+    transform: translateY(-2px);
+    box-shadow: 0 4px 20px rgba(79,142,247,0.5);
 }
 
 .message-meta {

@@ -40,51 +40,49 @@ const ChatManager = (() => {
         try {
             const wsCtx = await WorksheetContext.gather(['selection', 'sheet']);
 
-            // 1. Scaffold rubric
-            _showTyping(true, 'Creating requirements');
-            try {
-                const rubric = await LLMClient.rubricScaffold(text, wsCtx);
-                RubricManager.setRubric(rubric);
-            } catch (e) {
+            // 1 & 2. Fire rubric scaffold in parallel — user sees the gate
+            //        immediately while the LLM generates requirements in the background.
+            _showTyping(true, 'Creating requirements…');
+            const rubricPromise = LLMClient.rubricScaffold(text, wsCtx).catch(e => {
                 console.warn('[ChatManager] rubric scaffold failed:', e.message);
-            }
+                return null;
+            });
 
-            // 2. Show rubric gate — user reviews / edits requirements, then clicks Start
-            await RubricManager.showRubricGate();
+            // Show gate right away with empty rubric; update when ready
+            RubricManager.showRubricGate();
+            rubricPromise.then(rubric => {
+                if (rubric) RubricManager.setRubric(rubric);
+            });
 
-            // 3. Generate code segments
-            _showTyping(true, 'Generating a solution');
-            const rubric   = RubricManager.getRubric();
-            const segments = await LLMClient.generateCode(text, wsCtx, rubric);
+            // Wait for user to click Start in the gate
+            await RubricManager.waitForGate();
+
+            // 3. Generate code segments (no rubric passed — server no longer needs it)
+            _showTyping(true, 'Generating a solution…');
+            const segments = await LLMClient.generateCode(text, wsCtx);
             _showTyping(false);
 
             // 4. Register chain and show Start button
             const chain = DagRunner.prepareChain(text, segments);
 
             _appendMessage('agent',
-                `Ready to apply ${segments.length} step(s). Click Start when you're ready.`,
-                {
-                    actions: [{
-                        label: 'Start',
-                        primary: true,
-                        onClick: async (btn) => {
-                            if (_isBusy) return;
-                            btn.disabled    = true;
-                            btn.textContent = 'Starting…';
-                            _setBusy(true);
-                            try {
-                                _appendMessage('agent', `Applying ${segments.length} step(s) to your sheet…`);
-                                await DagRunner.start(chain.chainId);
-                            } catch (err) {
-                                _appendMessage('agent', `⚠️ ${err.message}`);
-                            } finally {
-                                _setBusy(false);
-                                btn.textContent = 'Start';
-                                btn.disabled    = false;
-                            }
-                        },
-                    }],
-                }
+                `Ready — ${segments.length} step${segments.length !== 1 ? 's' : ''} planned.`,
+                { actions: [{ label: '▶ Apply to sheet', primary: true, onClick: async (btn) => {
+                    if (_isBusy) return;
+                    btn.disabled    = true;
+                    btn.textContent = 'Starting…';
+                    _setBusy(true);
+                    try {
+                        _appendMessage('agent', `Applying ${segments.length} step(s)…`);
+                        await DagRunner.start(chain.chainId);
+                    } catch (err) {
+                        _appendMessage('agent', `⚠️ ${err.message}`);
+                    } finally {
+                        _setBusy(false);
+                        btn.textContent = '▶ Apply to sheet';
+                        btn.disabled    = false;
+                    }
+                }}]}
             );
 
         } catch (err) {

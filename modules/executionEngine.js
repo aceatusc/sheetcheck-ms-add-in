@@ -50,9 +50,10 @@ const ExecutionEngine = (() => {
             } catch (err) {
                 _log('err', `✗ ${err.message}`);
                 _setStatus('error');
-                console.error('[ExecutionEngine]', err);
+                // Mark the outgoing edge as failed so the graph colours it red
+                const failedEdges = DagStore.edgesFrom(current.currentNodeId);
+                if (failedEdges[0]) DagStore.markEdge(failedEdges[0].id, { executed: true, failed: true });
                 await StepNavigator.markFailed(err.message);
-                // Advance past the failed step and continue
                 continue;
             }
 
