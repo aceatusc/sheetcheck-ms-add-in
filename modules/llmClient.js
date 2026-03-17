@@ -36,6 +36,7 @@ const LLMClient = (() => {
 
     /** Edit a segment and regenerate the rest of the chain from that point.
      *  Returns an array: [editedSeg, ...regeneratedRemainder] */
+    // TODO: should not get remainingSegments; it should generate it as a new full path
     async function edit(message, wsContext, segment, remainingSegments = []) {
         const data = await _post('/edit', {
             message,
