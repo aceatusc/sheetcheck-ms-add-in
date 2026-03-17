@@ -1,6 +1,6 @@
 /**
  * stepNavigator.js
- * All SF1/SF2 features: graph, rubric, ask, edit, affordances, alternatives, chat dimming.
+ * Step navigation UI: graph, rubric, ask, edit, chat dimming.
  */
 const StepNavigator = (() => {
 
@@ -26,8 +26,6 @@ const StepNavigator = (() => {
     const _editPanel    = document.getElementById('step-nav-edit-panel');
     const _editFeedback = document.getElementById('step-nav-edit-feedback');
     const _editSend     = document.getElementById('step-nav-edit-send');
-    const _altList      = document.getElementById('step-nav-alt-list');
-    const _affordances  = document.getElementById('step-nav-affordances');
     const _rubricPanel  = document.getElementById('step-nav-rubric');
     const _rubricHard   = document.getElementById('rubric-hard-list');
     const _rubricSoft   = document.getElementById('rubric-soft-list');
@@ -43,7 +41,6 @@ const StepNavigator = (() => {
     let _isRunning      = false;
     let _advanceResolve = null;
     let _askHistory     = [];
-    let _selectedAltId  = null;
     let _rubric         = { hard_requirements: [], soft_requirements: [] };
     let _activePanel    = null; // 'ask' | 'edit' | 'rubric' | null
     let _isRubricGate   = false;
@@ -74,7 +71,6 @@ const StepNavigator = (() => {
         _currentIndex   = 0;
         _isRunning      = false;
         _advanceResolve = null;
-        _selectedAltId  = null;
         _askHistory     = [];
         _failedIndices  = new Set();
         _isVerifyGate   = false;
@@ -228,7 +224,6 @@ const StepNavigator = (() => {
         _isRunning     = false;
         _completedUpTo = Math.max(_completedUpTo, index);
         _currentIndex  = index;
-        _selectedAltId = null;
         _askHistory    = [];
         _overlay.classList.remove('running');
         _overlay.classList.add('visible');
@@ -251,7 +246,6 @@ const StepNavigator = (() => {
         // Treat failed step as "reached" so user can navigate back to it
         _completedUpTo = Math.max(_completedUpTo, index);
         _currentIndex  = index;
-        _selectedAltId = null;
         _askHistory    = [];
         _overlay.classList.remove('running');
         _overlay.classList.add('visible', 'failed');
@@ -322,7 +316,6 @@ const StepNavigator = (() => {
         // Allow visiting any step that has been reached (completed or failed)
         if (targetIndex < 0 || (targetIndex > _completedUpTo && !_failedIndices.has(targetIndex))) return;
         _currentIndex  = targetIndex;
-        _selectedAltId = null;
         _askHistory    = [];
         _closePanel();
         if (_failedIndices.has(targetIndex)) {
@@ -350,7 +343,6 @@ const StepNavigator = (() => {
         _askPanel.style.display   = name === 'ask'  ? 'flex' : 'none';
         _editPanel.style.display  = name === 'edit' ? 'flex' : 'none';
         _rubricPanel.style.display= name === 'rubric' ? 'block' : 'none';
-        if (name === 'edit') _renderEditPanel();
         if (name === 'rubric') _renderRubric();
     }
 
@@ -406,203 +398,6 @@ const StepNavigator = (() => {
         });
     }
 
-    // ── Edit / Alternatives feature ───────────────────────────────────────────
-
-    function _renderEditPanel() {
-        const seg  = _segments[_currentIndex];
-        const alts = seg?.alternatives || [];
-        _altList.innerHTML = '';
-        alts.forEach(alt => {
-            const row = document.createElement('div');
-            row.className = 'alt-row' + (alt.id === (_selectedAltId || alts[0]?.id) ? ' selected' : '');
-            row.innerHTML = `
-                <div class="alt-row-header">
-                    <span class="alt-label">${alt.label}</span>
-                    <span class="alt-prob">${Math.round(alt.probability * 100)}%</span>
-                </div>`;
-            row.onclick = () => _selectAlt(alt.id);
-            _altList.appendChild(row);
-        });
-        _renderAffordances();
-    }
-
-    function _selectAlt(altId) {
-        _selectedAltId = altId;
-        _renderEditPanel();
-    }
-
-    function _renderAffordances() {
-        const seg = _segments[_currentIndex];
-        const affs = seg?.affordances || [];
-        _affordances.innerHTML = '';
-        if (affs.length === 0) {
-            const empty = document.createElement('div');
-            empty.style.cssText = 'font-size:11px;color:rgba(255,255,255,0.4);padding:4px 0';
-            empty.textContent = 'No dynamic controls for this step.';
-            _affordances.appendChild(empty);
-            return;
-        }
-        affs.forEach(aff => {
-            const row = document.createElement('div');
-            row.className = 'aff-row';
-            let control;
-            if (aff.type === 'dropdown' && aff.options?.length) {
-                control = document.createElement('select');
-                control.className = 'aff-control';
-                aff.options.forEach(o => {
-                    const opt = document.createElement('option');
-                    opt.value = o; opt.textContent = o;
-                    if (o === aff.value) opt.selected = true;
-                    control.appendChild(opt);
-                });
-            } else if (aff.type === 'color') {
-                control = document.createElement('input');
-                control.type = 'color';
-                control.className = 'aff-control aff-color';
-                control.value = aff.value || '#000000';
-            } else if (aff.type === 'number') {
-                control = document.createElement('input');
-                control.type = 'number';
-                control.className = 'aff-control aff-number';
-                control.value = aff.value || '0';
-            } else if (aff.type === 'toggle') {
-                control = document.createElement('input');
-                control.type = 'checkbox';
-                control.className = 'aff-control';
-                control.checked = aff.value === 'true';
-            } else {
-                control = document.createElement('input');
-                control.type = 'text';
-                control.className = 'aff-control aff-number';
-                control.value = aff.value || '';
-            }
-            control.dataset.affId = aff.id;
-
-            // Live apply: re-run the current segment's code with the updated affordance value
-            control.addEventListener('change', () => {
-                aff.value = control.type === 'checkbox' ? String(control.checked) : control.value;
-                _applyAffordance(aff);
-            });
-
-            const label = document.createElement('span');
-            label.className = 'aff-label';
-            label.textContent = aff.label;
-            row.appendChild(label);
-            row.appendChild(control);
-            _affordances.appendChild(row);
-        });
-    }
-
-    /**
-     * Inject the updated affordance value into the segment code (via placeholder comment
-     * or by re-running the code with a find-replace on the old value) and run it live.
-     */
-    async function _applyAffordance(aff) {
-        // Always read from live segments array — avoids stale closure after edits
-        const seg = _segments[_currentIndex];
-        if (!seg) return;
-
-        let code = seg.code;
-        const placeholder = `/* AFFORDANCE:${aff.id} */`;
-        if (code.includes(placeholder)) {
-            code = code.replace(placeholder, JSON.stringify(aff.value));
-        } else {
-            code = _buildAffordanceSnippet(seg, aff);
-        }
-        if (!code) return;
-
-        console.log('[StepNavigator] affordance apply:', aff.id, '=', aff.value, '\nCode:', code);
-        try {
-            const fn = new (Object.getPrototypeOf(async function(){}).constructor)(code);
-            await fn();
-        } catch(err) {
-            console.error('[StepNavigator] affordance apply error:', err.message, '\nCode:', code);
-            // Surface error briefly in the affordance row label
-            const ctrl = _affordances.querySelector(`[data-aff-id="${aff.id}"]`);
-            if (ctrl) {
-                const row = ctrl.closest('.aff-row');
-                if (row) {
-                    const prev = row.querySelector('.aff-err');
-                    if (prev) prev.remove();
-                    const errEl = document.createElement('span');
-                    errEl.className = 'aff-err';
-                    errEl.textContent = '⚠';
-                    errEl.title = err.message;
-                    row.appendChild(errEl);
-                    setTimeout(() => errEl.remove(), 3000);
-                }
-            }
-        }
-    }
-
-    /**
-     * Build a minimal targeted Office.js snippet for common affordance patterns.
-     * Uses only the first sheet_context range to avoid multi-range getRange() errors.
-     */
-    function _buildAffordanceSnippet(seg, aff) {
-        // Excel getRange() only accepts a single address — never a comma-joined list
-        const firstRange = (seg.sheet_context || ['A1'])[0];
-        const val        = aff.value;
-        const label      = aff.label.toLowerCase();
-
-        // Color affordances
-        if (aff.type === 'color') {
-            if (label.includes('background') || label.includes('fill')) {
-                return `await Excel.run(async (ctx) => { ctx.workbook.worksheets.getActiveWorksheet().getRange("${firstRange}").format.fill.color = ${JSON.stringify(val)}; await ctx.sync(); });`;
-            }
-            if (label.includes('font') || label.includes('text')) {
-                return `await Excel.run(async (ctx) => { ctx.workbook.worksheets.getActiveWorksheet().getRange("${firstRange}").format.font.color = ${JSON.stringify(val)}; await ctx.sync(); });`;
-            }
-            if (label.includes('even') || label.includes('odd')) {
-                const isEven = label.includes('even');
-                return `await Excel.run(async (ctx) => {
-    const s = ctx.workbook.worksheets.getActiveWorksheet();
-    for (let i = 2; i <= 7; i++) {
-        if (i % 2 === ${isEven ? 0 : 1}) s.getRange("A"+i+":E"+i).format.fill.color = ${JSON.stringify(val)};
-    }
-    await ctx.sync();
-});`;
-            }
-            // Default color → fill
-            return `await Excel.run(async (ctx) => { ctx.workbook.worksheets.getActiveWorksheet().getRange("${firstRange}").format.fill.color = ${JSON.stringify(val)}; await ctx.sync(); });`;
-        }
-
-        // Number format dropdown
-        if (aff.type === 'dropdown' && (label.includes('format') || label.includes('number'))) {
-            return `await Excel.run(async (ctx) => {
-    const r = ctx.workbook.worksheets.getActiveWorksheet().getRange("${firstRange}");
-    r.load("rowCount,columnCount"); await ctx.sync();
-    r.numberFormat = Array.from({length:r.rowCount}, () => Array(r.columnCount).fill(${JSON.stringify(val)}));
-    await ctx.sync();
-});`;
-        }
-
-        // Font size number
-        // TODO: change them since they are hardcoded
-        if (aff.type === 'number' && label.includes('size')) {
-            return `await Excel.run(async (ctx) => { ctx.workbook.worksheets.getActiveWorksheet().getRange("${firstRange}").format.font.size = ${Number(val)}; await ctx.sync(); });`;
-        }
-
-        // Threshold — patch >= N in segment code
-        if (aff.type === 'number' && label.includes('threshold')) {
-            return seg.code.replace(/>=\s*\d+(\.\d+)?/g, `>= ${Number(val)}`);
-        }
-
-        // Alignment dropdown
-        if (aff.type === 'dropdown' && label.includes('alignment')) {
-            return `await Excel.run(async (ctx) => { ctx.workbook.worksheets.getActiveWorksheet().getRange("${firstRange}").format.horizontalAlignment = ${JSON.stringify(val)}; await ctx.sync(); });`;
-        }
-
-        // Label/text substitution in segment code
-        if (aff.type === 'dropdown' && label.includes('label')) {
-            return seg.code.replace(/"TOTAL"|"SUM"|"AVERAGE"|"GRAND TOTAL"/, JSON.stringify(val));
-        }
-
-        // Fallback: re-run the full segment code unchanged
-        console.warn('[StepNavigator] _buildAffordanceSnippet: no pattern matched for', aff.label, '— falling back to full segment re-run');
-        return seg.code;
-    }
-
     async function _onEditSend() {
         const msg            = _editFeedback.value.trim();
         const seg            = _segments[_currentIndex];
@@ -643,7 +438,6 @@ const StepNavigator = (() => {
             }
 
             _render();
-            _renderEditPanel();
         } catch(err) {
             _editSend.textContent = '⚠ Error';
             console.error('[StepNavigator] edit LLM error:', err);
