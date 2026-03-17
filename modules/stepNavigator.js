@@ -49,6 +49,7 @@ const StepNavigator = (() => {
     let _chainId        = null;
     let _isRunning      = false;
     let _advanceResolve = null;
+    let _dismissed      = false;  // set on dismiss; checked by executionEngine
     let _askHistory     = [];
     let _activePanel    = null;  // 'ask' | 'edit' | 'rubric' | null
     let _gateCallback   = null;  // one-shot: fires on the next → click
@@ -82,6 +83,7 @@ const StepNavigator = (() => {
         _askHistory     = [];
         _activePanel    = null;
         _gateCallback   = null;
+        _dismissed      = false;
         _closePanel();
         _render();
     }
@@ -124,11 +126,14 @@ const StepNavigator = (() => {
     }
 
     function dismiss() {
+        _dismissed = true;   // signals executionEngine to stop looping
+        _isRunning = false;
         _overlay.classList.remove('visible', 'running', 'failed', 'rubric-gate', 'verify-gate');
         _chatPanel.classList.remove('nav-active');
         _closePanel();
-        // Resolve any pending gate or step promise so callers don't hang
         _gateCallback = null;
+        // Resolve the pending promise so awaiting callers unblock,
+        // but executionEngine checks _dismissed before continuing.
         _resolve();
     }
 
@@ -559,5 +564,5 @@ const StepNavigator = (() => {
         return Math.max(0, chain.nodeIds.indexOf(chain.currentNodeId));
     }
 
-    return { init, load, markRunning, markFailed, waitForNext, dismiss, refreshGraph, setGateMode, dismissGate };
+    return { init, load, markRunning, markFailed, waitForNext, dismiss, refreshGraph, setGateMode, dismissGate, isDismissed: () => _dismissed };
 })();

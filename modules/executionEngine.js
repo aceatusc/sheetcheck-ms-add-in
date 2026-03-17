@@ -26,23 +26,24 @@ const ExecutionEngine = (() => {
         const total = chain.segments.length;
 
         while (true) {
-            // Fetch current chain state (may have been mutated by an edit)
+            if (StepNavigator.isDismissed()) break;  // user closed the navigator
+
             const current = DagRunner.getChain(chainId);
             if (!current) break;
 
-            // Check whether there's a next step to run
             const outgoing = DagStore.edgesFrom(current.currentNodeId);
-            if (!outgoing.length) break;  // reached a leaf — all done
+            if (!outgoing.length) break;
 
             const stepIdx = current.nodeIds.indexOf(current.currentNodeId);
             _updateProgress(stepIdx, current.segments.length);
 
             StepNavigator.markRunning();
+            if (StepNavigator.isDismissed()) break;
 
             let stepOk = false;
             try {
                 const result = await DagRunner.stepForward(chainId);
-                if (!result) break;  // no outgoing edge (leaf)
+                if (!result) break;
 
                 stepOk = true;
                 _updateProgress(stepIdx + 1, DagRunner.getChain(chainId).segments.length);
@@ -50,16 +51,24 @@ const ExecutionEngine = (() => {
             } catch (err) {
                 _log('err', `✗ ${err.message}`);
                 _setStatus('error');
-                // Mark the outgoing edge as failed so the graph colours it red
                 const failedEdges = DagStore.edgesFrom(current.currentNodeId);
                 if (failedEdges[0]) DagStore.markEdge(failedEdges[0].id, { executed: true, failed: true });
+                if (StepNavigator.isDismissed()) break;
                 await StepNavigator.markFailed(err.message);
+                if (StepNavigator.isDismissed()) break;
                 continue;
             }
 
             if (stepOk) {
                 await StepNavigator.waitForNext();
+                if (StepNavigator.isDismissed()) break;
             }
+        }
+
+        if (StepNavigator.isDismissed()) {
+            _log('info', 'Execution stopped — navigator dismissed.');
+            _setStatus('');
+            return;  // don't show verify results
         }
 
         if (_statusDot.classList.contains('error')) {
