@@ -236,107 +236,48 @@ const DagRunner = (() => {
         const dag      = DagStore.getAll();
         const allEdges = dag.edges;
 
-        // Fast lookup: nodeId → outgoing edges
-        const edgesFrom = {};
-        allEdges.forEach(e => {
-            (edgesFrom[e.from] = edgesFrom[e.from] || []).push(e);
-        });
-
-        // ── Layout model ───────────────────────────────────────────────────
-        //
-        // We track a stack of "active paths" — each path is a linear sequence
-        // of edges that runs horizontally on its own row. The original chain is
-        // path 0 (row 0). Each edit creates a new path that forks from some node
-        // on an existing path.
-        //
-        // Key invariant: once a path is assigned a row, ALL its nodes stay on
-        // that row at their assigned columns. A fork never re-routes a path —
-        // it always creates a NEW path on a new row below.
-        //
-        // We build paths by collecting the sequence of edge-chains from the DAG:
-        //   - Start with the original chain edges as path 0
-        //   - For every edit, chain.edgeIds contains the NEW active edges
-        //     (prefix of original + new branch edges). Collect all edge IDs
-        //     that appear in any version of chain.edgeIds across edits.
-        //   - Any edge not on any "active path" is an abandoned old branch.
-
-        // Collect all distinct linear paths in order of creation.
-        // Path 0 = original chain. Path 1 = first edit's new edges. Etc.
-        // We detect paths by finding all unique sequences of edges that share
-        // a common prefix with the original chain.
-
         const originalNodeIds = chain.originalNodeIds || chain.nodeIds;
         const originalEdgeIds = chain.originalEdgeIds || chain.edgeIds;
         const originalEdgeSet = new Set(originalEdgeIds);
-
-        // The "current active" edges are chain.edgeIds (may differ after edits)
-        const activeEdgeSet = new Set(chain.edgeIds);
+        const branchHistory   = chain.branchHistory || [];
 
         // layout: nodeId → { col, row }
         const layout = {};
 
-        // ── 1. Assign original chain to row 0 ────────────────────────────
-        originalNodeIds.forEach((nid, i) => { layout[nid] = { col: i, row: 0 }; });
+        // ── Helper: place all unplaced nodes in a path list ───────────────
+        // Nodes already in layout are skipped (they belong to an earlier path).
+        // The FIRST unplaced node forks to (parentCol+1, parentRow+1).
+        // All SUBSEQUENT unplaced nodes in the same path continue on that
+        // same row, incrementing col by 1 each time.
+        function _placePath(nodeIds) {
+            let forkRow = null;   // determined on first unplaced node
+            let col     = -1;
+            let lastRow = 0;
 
-        // ── 2. Assign each historical branch path to its own fixed row ────
-        //
-        // branchHistory is an array of { nodeIds, edgeIds } saved in applyEdit,
-        // one entry per edit in creation order. Each represents the full active
-        // path at the time of that edit. We assign them rows 1, 2, 3… in order.
-        //
-        // For each historical path, only nodes NOT already placed (i.e. not on
-        // the original chain or a previously-placed path) get a new layout entry.
-        // Nodes shared with the original chain (the prefix up to the fork point)
-        // already have layout from step 1 and are skipped.
-        //
-        // This guarantees: every historical path stays permanently on its
-        // assigned row. The current active path gets the next available row.
-
-        const branchHistory = chain.branchHistory || [];
-        let nextRow = 1;
-
-        // Assign historical paths — each forks exactly one row below its parent
-        branchHistory.forEach(({ nodeIds: pathNodeIds }) => {
-            let col       = -1;
-            let parentRow = 0;
-            pathNodeIds.forEach(nid => {
+            nodeIds.forEach(nid => {
                 if (layout[nid]) {
-                    col       = layout[nid].col;
-                    parentRow = layout[nid].row;
+                    col     = layout[nid].col;
+                    lastRow = layout[nid].row;
                     return;
                 }
+                // First unplaced node: fork exactly one row below parent
+                if (forkRow === null) forkRow = lastRow + 1;
                 col++;
-                const row = parentRow + 1;
-                layout[nid] = { col, row };
-                parentRow   = row;
-            });
-        });
-
-        // ── 3. Assign current active path nodes not yet placed ────────────
-        // Walk chain.nodeIds. For each node not yet in layout, find the last
-        // placed node's row and place this one exactly one row below it.
-        // This ensures every branch connector spans exactly ROW_H regardless
-        // of how many sibling branches exist at the same fork point.
-        {
-            let col       = -1;
-            let parentRow = 0;   // row of the last placed (shared prefix) node
-            chain.nodeIds.forEach(nid => {
-                if (layout[nid]) {
-                    col       = layout[nid].col;
-                    parentRow = layout[nid].row;
-                    return;
-                }
-                // First unplaced node: fork one row below the last placed node
-                col++;
-                const row = parentRow + 1;
-                layout[nid] = { col, row };
-                parentRow   = row;  // subsequent unplaced nodes continue on same row
+                layout[nid] = { col, row: forkRow };
             });
         }
 
-        // ── 3. Compute grid dimensions ─────────────────────────────────────
-        let maxCol = originalNodeIds.length - 1;
-        let maxRow = 0;
+        // ── 1. Original chain → row 0 ─────────────────────────────────────
+        originalNodeIds.forEach((nid, i) => { layout[nid] = { col: i, row: 0 }; });
+
+        // ── 2. Historical branches (oldest first) ─────────────────────────
+        branchHistory.forEach(({ nodeIds }) => _placePath(nodeIds));
+
+        // ── 3. Current active path ────────────────────────────────────────
+        _placePath(chain.nodeIds);
+
+        // ── 4. Grid dimensions ────────────────────────────────────────────
+        let maxCol = 0, maxRow = 0;
         Object.values(layout).forEach(({ col, row }) => {
             if (col > maxCol) maxCol = col;
             if (row > maxRow) maxRow = row;
@@ -344,7 +285,7 @@ const DagRunner = (() => {
         const totalCols = maxCol + 1;
         const totalRows = maxRow + 1;
 
-        // ── 4. Build node descriptors ──────────────────────────────────────
+        // ── 5. Node descriptors ───────────────────────────────────────────
         const visitedNodeIds = _visitedNodes(chain);
         const currentNodeId  = chain.currentNodeId;
         const nodesOut = [];
@@ -365,8 +306,8 @@ const DagRunner = (() => {
             });
         });
 
-        // ── 5. Build edge descriptors ──────────────────────────────────────
-        const edgesOut = [];
+        // ── 6. Edge descriptors ───────────────────────────────────────────
+        const edgesOut  = [];
         const seenEdges = new Set();
 
         allEdges.forEach(e => {
@@ -388,13 +329,7 @@ const DagRunner = (() => {
             });
         });
 
-        return {
-            nodes:         nodesOut,
-            edges:         edgesOut,
-            currentNodeId,
-            cols:          totalCols,
-            rows:          totalRows,
-        };
+        return { nodes: nodesOut, edges: edgesOut, currentNodeId, cols: totalCols, rows: totalRows };
     }
 
     // ── Private helpers ───────────────────────────────────────────────────────
