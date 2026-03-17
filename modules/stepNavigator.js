@@ -287,7 +287,7 @@ const StepNavigator = (() => {
     const SVG_NS = 'http://www.w3.org/2000/svg';
     const NODE_R = 6;
     const COL_W  = 34;
-    const ROW_H  = 30;
+    const ROW_H  = 34;  // equal to COL_W → 45° diagonal connectors
     const PAD_X  = 16;
     const PAD_Y  = 16;
 
