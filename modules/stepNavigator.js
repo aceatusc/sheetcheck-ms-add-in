@@ -699,11 +699,64 @@ const StepNavigator = (() => {
         const PAD_Y   = 10;
 
         // ── Build rows ────────────────────────────────────────────────────────
-        // Row 0 = active path (_segments). Row 1..N = branches (oldest first).
-        // Each row: { segs[], fromIndex (where it branches from row 0), rowY }
+        // Row 0 is the active path. Additional rows are derived from the global DAG
+        // (window.__sheetcheckDag via DagStore) when available.
+        //
+        // Each row: { segs[], edgeIds[], fromIndex }
         const rows = [];
-        rows.push({ segs: _segments, fromIndex: -1 });
-        _branches.forEach(b => rows.push({ segs: b.segments, fromIndex: b.fromIndex }));
+
+        // Always render the active path
+        rows.push({
+            segs: _segments,
+            edgeIds: _dagMeta?.edgeIds || [],
+            fromIndex: -1,
+        });
+
+        // When we have an active chain, derive branches from the global DAG,
+        // not from local `_branches`, to avoid conflicts after edits.
+        if (_dagMeta?.nodeIds?.length && _dagMeta?.edgeIds?.length) {
+            const dag = DagStore.getAll();
+            const edges = Array.isArray(dag?.edges) ? dag.edges : [];
+
+            const edgesByFrom = {};
+            const edgeById = {};
+            edges.forEach(e => {
+                edgeById[e.id] = e;
+                if (!edgesByFrom[e.from]) edgesByFrom[e.from] = [];
+                edgesByFrom[e.from].push(e);
+            });
+
+            const mainEdgeSet = new Set(_dagMeta.edgeIds);
+
+            // For each node on the main path, show alternative outgoing edges as branch rows.
+            _dagMeta.nodeIds.forEach((nodeId, nodeIdx) => {
+                const outgoing = edgesByFrom[nodeId] || [];
+                const branchStarts = outgoing.filter(e => !mainEdgeSet.has(e.id));
+                branchStarts.forEach(startEdge => {
+                    const branchEdges = [];
+                    let cur = startEdge;
+                    const visited = new Set();
+                    while (cur && !visited.has(cur.id)) {
+                        visited.add(cur.id);
+                        branchEdges.push(cur);
+                        const nextOut = edgesByFrom[cur.to] || [];
+                        if (nextOut.length !== 1) break;
+                        cur = nextOut[0];
+                    }
+
+                    const segs = branchEdges.map(e => e.segment).filter(Boolean);
+                    const edgeIds = branchEdges.map(e => e.id);
+                    if (segs.length) {
+                        // fromIndex aligns with the segment index where the fork happens.
+                        // In this UI model, branching row begins at node (fromIndex + 1).
+                        rows.push({ segs, edgeIds, fromIndex: nodeIdx });
+                    }
+                });
+            });
+        } else {
+            // Fallback to legacy local branch rendering if DAG metadata is missing.
+            _branches.forEach(b => rows.push({ segs: b.segments, edgeIds: [], fromIndex: b.fromIndex }));
+        }
 
         const maxEdges = Math.max(...rows.map(r => r.segs.length));
         // Node count for main row = total + 1; branches may be shorter
@@ -769,15 +822,15 @@ const StepNavigator = (() => {
 
             // Draw edges (one per segment in this row)
             segs.forEach((seg, edgeIdx) => {
-                const absEdgeIdx = isBranch ? 0 : edgeIdx; // for status checks use _segments index
-                const trueIdx    = isBranch ? -1 : edgeIdx; // -1 = branch edge, not navigable
                 const x1 = nodeX(startNodeIndex + edgeIdx);
                 const x2 = nodeX(startNodeIndex + edgeIdx + 1);
                 const mx = (x1 + x2) / 2;
 
                 const isActive   = !isBranch && edgeIdx === _currentIndex;
-                const isExecuted = !isBranch && edgeIdx <= _completedUpTo;
-                const isFailed   = !isBranch && _failedIndices.has(edgeIdx);
+                const edgeId = (!isBranch && _dagMeta?.edgeIds?.[edgeIdx]) ? _dagMeta.edgeIds[edgeIdx] : null;
+                const dagEdge = edgeId ? DagStore.getAll().edges.find(e => e.id === edgeId) : null;
+                const isExecuted = !isBranch && (dagEdge?.executed || edgeIdx <= _completedUpTo);
+                const isFailed   = !isBranch && (dagEdge?.failed || _failedIndices.has(edgeIdx));
                 const isRunning  = !isBranch && edgeIdx === _currentIndex && _isRunning;
                 const isReachable = !isBranch && (isExecuted || isFailed);
 
