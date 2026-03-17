@@ -36,6 +36,7 @@ const StepNavigator = (() => {
 
     // ── State ─────────────────────────────────────────────────────────────────
     let _segments       = [];
+    let _dagMeta        = null; // { chainId, rootNodeId, nodeIds[], edgeIds[], taskLabel }
     let _completedUpTo  = -1;
     let _currentIndex   = 0;
     let _isRunning      = false;
@@ -65,8 +66,9 @@ const StepNavigator = (() => {
         _rubricAdd.addEventListener('click', _onRubricAdd);
     }
 
-    function loadSegments(segments) {
+    function loadSegments(segments, dagMeta = null) {
         _segments       = segments;
+        _dagMeta        = dagMeta;
         _completedUpTo  = -1;
         _currentIndex   = 0;
         _isRunning      = false;
@@ -415,8 +417,20 @@ const StepNavigator = (() => {
                 _branches.push({ fromIndex: _currentIndex, segments: remaining });
             }
 
-            // Splice new chain into _segments from current index onward
-            _segments = [..._segments.slice(0, _currentIndex), ...newChain];
+            // Update DAG and splice new chain into _segments from current index onward
+            if (_dagMeta?.chainId) {
+                const updated = DagRunner.applyEdit(_dagMeta.chainId, _currentIndex, msg, newChain);
+                _segments = updated.segments;
+                _dagMeta = {
+                    chainId: updated.chainId,
+                    rootNodeId: updated.rootNodeId,
+                    nodeIds: updated.nodeIds,
+                    edgeIds: updated.edgeIds,
+                    taskLabel: updated.taskLabel,
+                };
+            } else {
+                _segments = [..._segments.slice(0, _currentIndex), ...newChain];
+            }
 
             // Mark completed state: only steps before edit point still counted
             _completedUpTo = Math.min(_completedUpTo, _currentIndex - 1);
@@ -430,9 +444,13 @@ const StepNavigator = (() => {
                     const fn = new (Object.getPrototypeOf(async function(){}).constructor)(firstSeg.code);
                     await fn();
                     _completedUpTo = Math.max(_completedUpTo, _currentIndex);
+                    const edgeId = _dagMeta?.edgeIds?.[_currentIndex];
+                    if (edgeId) DagStore.markEdgeExecuted(edgeId, false);
                     _editSend.textContent = '✓ Applied';
                 } catch (execErr) {
                     _editSend.textContent = '⚠ Run failed';
+                    const edgeId = _dagMeta?.edgeIds?.[_currentIndex];
+                    if (edgeId) DagStore.markEdgeExecuted(edgeId, true);
                     console.error('[StepNavigator] edit run error:', execErr.message);
                 }
             }

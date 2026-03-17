@@ -103,6 +103,34 @@
     border-bottom-left-radius: var(--radius-sm);
 }
 
+.message-actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 8px;
+    flex-wrap: wrap;
+}
+
+.message-action-btn {
+    border-radius: 10px;
+    padding: 7px 10px;
+    font-size: 12px;
+    border: 1px solid var(--color-border);
+    background: var(--color-bg);
+    color: var(--color-text);
+    cursor: pointer;
+    transition: opacity var(--transition), transform var(--transition), border-color var(--transition);
+}
+
+.message-action-btn:hover { opacity: 0.9; transform: translateY(-1px); }
+.message-action-btn:active { transform: translateY(0); }
+.message-action-btn:disabled { opacity: 0.45; cursor: not-allowed; transform: none; }
+
+.message-action-btn.primary {
+    border-color: var(--color-accent);
+    background: var(--color-accent);
+    color: white;
+}
+
 .message-meta {
     font-size: 10px;
     color: var(--color-text-muted);

@@ -8,13 +8,11 @@
  */
 const ExecutionEngine = (() => {
 
-    const STORAGE_KEY = 'sheetcheck_dag';
     const _logEl         = document.getElementById('execution-log');
     const _statusDot     = document.getElementById('execution-status-dot');
     const _barFill       = document.getElementById('segment-bar-fill');
     const _barLabel      = document.getElementById('segment-label');
     const _progressStrip = document.getElementById('segment-progress');
-    const _panel         = document.getElementById('execution-panel');
 
     /**
      * Run segments sequentially, waiting for user confirmation after each one.
@@ -33,7 +31,6 @@ const ExecutionEngine = (() => {
 
             _updateProgress(i, segments.length);
             _log('info', `▶ ${seg.description}`);
-            _log('info', localStorage.getItem(STORAGE_KEY))
 
             StepNavigator.markRunning(i);
 

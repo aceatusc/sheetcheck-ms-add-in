@@ -1,5 +1,5 @@
 /**
- * dagStore.js — Persistent DAG of worksheet states and code segments.
+ * dagStore.js — In-memory DAG of worksheet states and code segments.
  *
  * Model:
  *   Node  — a worksheet state snapshot  { id, label, ts, taskLabel }
@@ -8,29 +8,29 @@
  * The graph is directed and acyclic. Each new /code run produces a linear
  * chain: root → n1 → n2 → … → nK. An edit at step i branches from node i,
  * creating a new chain parallel to the original tail.
- *
- * Stored in localStorage under key "sheetcheck_dag".
  */
 const DagStore = (() => {
 
-    const STORAGE_KEY = 'sheetcheck_dag';
+    const GLOBAL_KEY = '__sheetcheckDag';
 
-    // In-memory mirror of what's in localStorage
-    let _dag = _load();
+    // Shared in-memory DAG for the current add-in session.
+    // Backed by `window[GLOBAL_KEY]` so all modules see the same object.
+    let _dag = null;
 
-    // ── Persistence ───────────────────────────────────────────────────────────
-
-    function _load() {
-        try {
-            const raw = localStorage.getItem(STORAGE_KEY);
-            if (raw) return JSON.parse(raw);
-        } catch(e) { console.warn('[DagStore] load error', e); }
-        return { nodes: [], edges: [] };
+    function init(options = {}) {
+        const { reset = false } = options;
+        if (typeof window === 'undefined') {
+            _dag = { nodes: [], edges: [] };
+            return;
+        }
+        if (reset || !window[GLOBAL_KEY]) {
+            window[GLOBAL_KEY] = { nodes: [], edges: [] };
+        }
+        _dag = window[GLOBAL_KEY];
     }
 
-    function _save() {
-        try { localStorage.setItem(STORAGE_KEY, JSON.stringify(_dag)); }
-        catch(e) { console.warn('[DagStore] save error', e); }
+    function _ensureInit() {
+        if (!_dag) init();
     }
 
     function _uid() {
@@ -49,6 +49,7 @@ const DagStore = (() => {
      *                                  (used when Edit generates a new chain)
      */
     function addChain(taskLabel, segments, fromNodeId = null) {
+        _ensureInit();
         const now = Date.now();
 
         // Root node — either a fresh one or reuse the branch point
@@ -85,7 +86,6 @@ const DagStore = (() => {
             prevNodeId = nodeId;
         });
 
-        _save();
         return { rootNodeId: rootId, nodeIds, edgeIds };
     }
 
@@ -95,8 +95,9 @@ const DagStore = (() => {
      * @param {boolean} failed
      */
     function markEdgeExecuted(edgeId, failed = false) {
+        _ensureInit();
         const e = _dag.edges.find(e => e.id === edgeId);
-        if (e) { e.executed = true; e.failed = failed; _save(); }
+        if (e) { e.executed = true; e.failed = failed; }
     }
 
     /**
@@ -112,6 +113,7 @@ const DagStore = (() => {
 
     /** Full graph snapshot — returns deep copy. */
     function getGraph() {
+        _ensureInit();
         return JSON.parse(JSON.stringify(_dag));
     }
 
@@ -121,6 +123,7 @@ const DagStore = (() => {
      * Each step is { edge, direction } where direction = 'forward' | 'backward'.
      */
     function findPath(fromNodeId, toNodeId) {
+        _ensureInit();
         if (fromNodeId === toNodeId) return [];
 
         // Build adjacency: forward and backward edges
@@ -163,6 +166,7 @@ const DagStore = (() => {
 
     /** Get the edge that leads INTO a given node (most recently executed one). */
     function getIncomingEdge(nodeId) {
+        _ensureInit();
         // Among all edges pointing to nodeId, prefer executed ones
         const incoming = _dag.edges.filter(e => e.to === nodeId);
         return incoming.find(e => e.executed) || incoming[0] || null;
@@ -170,18 +174,20 @@ const DagStore = (() => {
 
     /** Get a node by id. */
     function getNode(nodeId) {
+        _ensureInit();
         return _dag.nodes.find(n => n.id === nodeId) || null;
     }
 
     /** Get all nodes + edges. */
-    function getAll() { return _dag; }
+    function getAll() { _ensureInit(); return _dag; }
 
     /** Clear the entire DAG (for testing / reset). */
     function clear() {
-        _dag = { nodes: [], edges: [] };
-        _save();
+        _ensureInit();
+        _dag.nodes.length = 0;
+        _dag.edges.length = 0;
     }
 
     return { addChain, branchFrom, markEdgeExecuted, getGraph, findPath,
-             getIncomingEdge, getNode, getAll, clear };
+             getIncomingEdge, getNode, getAll, clear, init };
 })();
