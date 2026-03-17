@@ -34,13 +34,14 @@ const LLMClient = (() => {
         return _post('/ask', { message, context: wsContext, step, history });
     }
 
-    /** Edit a segment and generate a complete new path from that point onward.
-     *  Returns an array: [editedSeg, ...newRemainder] */
-    async function edit(message, wsContext, segment) {
+    /** Edit a segment and regenerate the remainder of the chain.
+     *  Returns an array: [editedSeg, ...regeneratedRemainder] */
+    async function edit(message, wsContext, segment, remainingSegments = []) {
         const data = await _post('/edit', {
             message,
             context: wsContext,
             segment,
+            remaining_segments: remainingSegments,
         });
         return data.segments;
     }

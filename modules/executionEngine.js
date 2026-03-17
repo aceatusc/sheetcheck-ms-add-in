@@ -1,10 +1,7 @@
 /**
  * executionEngine.js
- * Runs code segments one at a time, pausing between each for the user
- * to review the change and click → in the StepNavigator overlay.
- *
- * Accepts optional callbacks for DAG tracking:
- *   { onStepDone(index), onStepFailed(index) }
+ * Runs a chain sequentially by calling DagRunner.stepForward() for each step,
+ * pausing between each for the user to review the change and click →.
  */
 const ExecutionEngine = (() => {
 
@@ -15,57 +12,53 @@ const ExecutionEngine = (() => {
     const _progressStrip = document.getElementById('segment-progress');
 
     /**
-     * Run segments sequentially, waiting for user confirmation after each one.
-     * @param {CodeSegment[] | (() => CodeSegment[])} segmentsOrGetter
-     * @param {{ onStepDone?: Function, onStepFailed?: Function }} [callbacks]
+     * Run all steps in a chain to completion.
+     * @param {string} chainId
      */
-    async function run(segmentsOrGetter, callbacks = {}) {
-        const getSegments = typeof segmentsOrGetter === 'function'
-            ? segmentsOrGetter
-            : () => segmentsOrGetter;
-
-        const initial = getSegments() || [];
-        if (!initial.length) return;
+    async function run(chainId) {
+        const chain = DagRunner.getChain(chainId);
+        if (!chain?.segments?.length) return;
 
         _setStatus('running');
         _progressStrip.classList.add('visible');
-        _log('info', `Starting execution: ${initial.length} segment(s)`);
+        _log('info', `Starting execution: ${chain.segments.length} segment(s)`);
 
-        let i = 0;
+        const total = chain.segments.length;
+
         while (true) {
-            const segments = getSegments() || [];
-            if (i >= segments.length) break;
-            const seg = segments[i];
-            if (!seg) break;
+            // Fetch current chain state (may have been mutated by an edit)
+            const current = DagRunner.getChain(chainId);
+            if (!current) break;
 
-            _updateProgress(i, segments.length);
-            _log('info', `▶ ${seg.description}`);
+            // Check whether there's a next step to run
+            const outgoing = DagStore.edgesFrom(current.currentNodeId);
+            if (!outgoing.length) break;  // reached a leaf — all done
 
-            StepNavigator.markRunning(i);
+            const stepIdx = current.nodeIds.indexOf(current.currentNodeId);
+            _updateProgress(stepIdx, current.segments.length);
+
+            StepNavigator.markRunning();
 
             let stepOk = false;
             try {
-                const fn = _makeAsyncFn(seg.code);
-                await fn();
+                const result = await DagRunner.stepForward(chainId);
+                if (!result) break;  // no outgoing edge (leaf)
+
                 stepOk = true;
-                _updateProgress(i + 1, segments.length);
-                _log('ok', `✓ ${seg.description}`);
-                callbacks.onStepDone?.(i);
+                _updateProgress(stepIdx + 1, DagRunner.getChain(chainId).segments.length);
+                _log('ok', `✓ ${result.segment.description}`);
             } catch (err) {
-                _log('err', `✗ ${seg.description}: ${err.message}`);
+                _log('err', `✗ ${err.message}`);
                 _setStatus('error');
-                console.error('[ExecutionEngine] Segment error:', err);
-                callbacks.onStepFailed?.(i);
-                await StepNavigator.markFailed(i, err.message);
-                i += 1;
+                console.error('[ExecutionEngine]', err);
+                await StepNavigator.markFailed(err.message);
+                // Advance past the failed step and continue
                 continue;
             }
 
             if (stepOk) {
-                await StepNavigator.waitForNext(i);
+                await StepNavigator.waitForNext();
             }
-
-            i += 1;
         }
 
         if (_statusDot.classList.contains('error')) {
@@ -74,14 +67,11 @@ const ExecutionEngine = (() => {
             _setStatus('success');
             _log('ok', 'All segments complete.');
         }
-        await StepNavigator.showVerifyResults();
+
+        await RubricManager.showVerifyResults();
     }
 
     // ── Private helpers ───────────────────────────────────────────────────────
-
-    function _makeAsyncFn(code) {
-        return new (Object.getPrototypeOf(async function () {}).constructor)(code);
-    }
 
     function _setStatus(state) {
         _statusDot.className = '';
@@ -103,5 +93,5 @@ const ExecutionEngine = (() => {
         _logEl.scrollTop = _logEl.scrollHeight;
     }
 
-    return { run };
+    return { run, log: _log };
 })();
