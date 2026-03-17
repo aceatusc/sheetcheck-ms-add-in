@@ -42,47 +42,52 @@ const ChatManager = (() => {
 
             // 1. Scaffold rubric
             _showTyping(true, 'Creating requirements');
-            let rubric = null;
             try {
-                rubric = await LLMClient.rubricScaffold(text, wsCtx);
-                StepNavigator.setRubric(rubric);
-            } catch(e) { console.warn('[ChatManager] rubric scaffold failed:', e.message); }
+                const rubric = await LLMClient.rubricScaffold(text, wsCtx);
+                RubricManager.setRubric(rubric);
+            } catch (e) {
+                console.warn('[ChatManager] rubric scaffold failed:', e.message);
+            }
 
-            // 2. Generate code segments
+            // 2. Show rubric gate — user reviews / edits requirements, then clicks Start
+            await RubricManager.showRubricGate();
+
+            // 3. Generate code segments
             _showTyping(true, 'Generating a solution');
+            const rubric   = RubricManager.getRubric();
             const segments = await LLMClient.generateCode(text, wsCtx, rubric);
             _showTyping(false);
 
-            // 3. Store DAG chain (in global in-memory state) and show Start button.
+            // 4. Register chain and show Start button
             const chain = DagRunner.prepareChain(text, segments);
 
             _appendMessage('agent',
-                `Ready to apply ${segments.length} step(s). Click Start when you’re ready.`,
+                `Ready to apply ${segments.length} step(s). Click Start when you're ready.`,
                 {
                     actions: [{
                         label: 'Start',
                         primary: true,
                         onClick: async (btn) => {
                             if (_isBusy) return;
-                            btn.disabled = true;
+                            btn.disabled    = true;
                             btn.textContent = 'Starting…';
                             _setBusy(true);
                             try {
-                                _appendMessage('agent', `Applying ${segments.length} step(s) to your sheet...`);
+                                _appendMessage('agent', `Applying ${segments.length} step(s) to your sheet…`);
                                 await DagRunner.start(chain.chainId);
                             } catch (err) {
                                 _appendMessage('agent', `⚠️ ${err.message}`);
                             } finally {
                                 _setBusy(false);
                                 btn.textContent = 'Start';
-                                btn.disabled = false;
+                                btn.disabled    = false;
                             }
-                        }
+                        },
                     }],
                 }
             );
 
-        } catch(err) {
+        } catch (err) {
             _showTyping(false);
             _appendMessage('agent', `⚠️ ${err.message}`);
         }
@@ -94,7 +99,7 @@ const ChatManager = (() => {
         const w = document.createElement('div');
         w.className = `message ${role}`;
         const b = document.createElement('div');
-        b.className = 'message-bubble';
+        b.className   = 'message-bubble';
         b.textContent = text;
 
         const actions = Array.isArray(options.actions) ? options.actions : [];
@@ -103,7 +108,7 @@ const ChatManager = (() => {
             row.className = 'message-actions';
             actions.forEach(a => {
                 const btn = document.createElement('button');
-                btn.className = `message-action-btn${a.primary ? ' primary' : ''}`;
+                btn.className   = `message-action-btn${a.primary ? ' primary' : ''}`;
                 btn.textContent = a.label || 'Action';
                 btn.addEventListener('click', () => a.onClick?.(btn));
                 row.appendChild(btn);
@@ -112,7 +117,8 @@ const ChatManager = (() => {
         }
 
         const m = document.createElement('span');
-        m.className = 'message-meta'; m.textContent = role === 'user' ? 'You' : 'Assistant';
+        m.className   = 'message-meta';
+        m.textContent = role === 'user' ? 'You' : 'Assistant';
         w.appendChild(b); w.appendChild(m);
         _feed.insertBefore(w, _typing);
         _feed.scrollTop = _feed.scrollHeight;
@@ -125,7 +131,7 @@ const ChatManager = (() => {
     }
 
     function _setBusy(b) {
-        _isBusy = b;
+        _isBusy       = b;
         _sendBtn.disabled = b || _input.value.trim() === '';
         _input.disabled   = b;
     }

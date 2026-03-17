@@ -1,24 +1,23 @@
 /**
- * dagStore.js — In-memory DAG of worksheet states and code segments.
+ * dagStore.js — Minimal in-memory DAG.
  *
  * Model:
- *   Node  — a worksheet state snapshot  { id, label, ts, taskLabel }
- *   Edge  — a code segment transition   { id, from, to, segment, executed, failed }
+ *   Node { id, label, taskLabel, isRoot }
+ *   Edge { id, from, to, segment, executed, failed }
  *
- * The graph is directed and acyclic. Each new /code run produces a linear
- * chain: root → n1 → n2 → … → nK. An edit at step i branches from node i,
- * creating a new chain parallel to the original tail.
+ * Nodes are worksheet states. Edges are code-segment transitions.
+ * All path-finding and traversal logic lives in dagRunner.js.
  */
 const DagStore = (() => {
 
     const GLOBAL_KEY = '__sheetcheckDag';
-
-    // Shared in-memory DAG for the current add-in session.
-    // Backed by `window[GLOBAL_KEY]` so all modules see the same object.
     let _dag = null;
 
-    function init(options = {}) {
-        const { reset = false } = options;
+    function _uid() {
+        return Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+    }
+
+    function init({ reset = false } = {}) {
         if (typeof window === 'undefined') {
             _dag = { nodes: [], edges: [] };
             return;
@@ -29,171 +28,61 @@ const DagStore = (() => {
         _dag = window[GLOBAL_KEY];
     }
 
-    function _ensureInit() {
-        if (!_dag) init();
-    }
+    function _ensure() { if (!_dag) init(); }
 
-    function _uid() {
-        return Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
-    }
-
-    // ── Public API ────────────────────────────────────────────────────────────
+    // ── Write ─────────────────────────────────────────────────────────────────
 
     /**
-     * Start a brand-new linear chain from a fresh task.
+     * Add a linear chain of segments to the DAG.
+     * fromNodeId — branch point node (null = create a new root).
      * Returns { rootNodeId, nodeIds[], edgeIds[] }
-     *
-     * @param {string}   taskLabel   — the user's message
-     * @param {object[]} segments    — array of code segments from /code
-     * @param {string}   [fromNodeId] — if set, branch from an existing node
-     *                                  (used when Edit generates a new chain)
      */
     function addChain(taskLabel, segments, fromNodeId = null) {
-        _ensureInit();
+        _ensure();
         const now = Date.now();
 
-        // Root node — either a fresh one or reuse the branch point
         let rootId = fromNodeId;
         if (!rootId) {
             rootId = _uid();
-            _dag.nodes.push({ id: rootId, label: 'Start', ts: now, taskLabel, isRoot: true });
+            _dag.nodes.push({ id: rootId, label: 'Start', taskLabel, isRoot: true });
         }
 
         const nodeIds = [rootId];
         const edgeIds = [];
+        let prev = rootId;
 
-        let prevNodeId = rootId;
         segments.forEach((seg, i) => {
-            const nodeId = _uid();
-            const edgeId = _uid();
-            _dag.nodes.push({
-                id: nodeId,
-                label: seg.description,
-                ts: now + i + 1,
-                taskLabel,
-                isRoot: false,
-            });
-            _dag.edges.push({
-                id: edgeId,
-                from: prevNodeId,
-                to: nodeId,
-                segment: seg,
-                executed: false,
-                failed: false,
-            });
-            nodeIds.push(nodeId);
-            edgeIds.push(edgeId);
-            prevNodeId = nodeId;
+            const nid = _uid();
+            const eid = _uid();
+            _dag.nodes.push({ id: nid, label: seg.description, taskLabel, isRoot: false });
+            _dag.edges.push({ id: eid, from: prev, to: nid, segment: seg, executed: false, failed: false });
+            nodeIds.push(nid);
+            edgeIds.push(eid);
+            prev = nid;
         });
 
         return { rootNodeId: rootId, nodeIds, edgeIds };
     }
 
-    /**
-     * Mark an edge as executed (or failed).
-     * @param {string}  edgeId
-     * @param {boolean} failed
-     */
-    function markEdgeExecuted(edgeId, failed = false) {
-        _ensureInit();
+    /** Mark an edge executed (or failed). */
+    function markEdge(edgeId, { executed = true, failed = false } = {}) {
+        _ensure();
         const e = _dag.edges.find(e => e.id === edgeId);
-        if (e) { e.executed = true; e.failed = failed; }
+        if (e) { e.executed = executed; e.failed = failed; }
     }
 
-    /** Get an edge by id. */
-    function getEdge(edgeId) {
-        _ensureInit();
-        return _dag.edges.find(e => e.id === edgeId) || null;
-    }
+    // ── Read ──────────────────────────────────────────────────────────────────
 
-    /**
-     * Replace tail edges from a given node (for Edit flow).
-     * Removes all edges that are descendants of fromNodeId
-     * (does not remove nodes — they stay as abandoned states),
-     * then adds the new chain.
-     */
-    function branchFrom(fromNodeId, taskLabel, newSegments) {
-        // Just add a new chain branching from the existing node
-        return addChain(taskLabel, newSegments, fromNodeId);
-    }
+    function getEdge(id)  { _ensure(); return _dag.edges.find(e => e.id === id) || null; }
+    function getNode(id)  { _ensure(); return _dag.nodes.find(n => n.id === id) || null; }
+    function getAll()     { _ensure(); return _dag; }
 
-    /** Full graph snapshot — returns deep copy. */
-    function getGraph() {
-        _ensureInit();
-        return JSON.parse(JSON.stringify(_dag));
-    }
+    /** All edges leaving a node. */
+    function edgesFrom(nodeId) { _ensure(); return _dag.edges.filter(e => e.from === nodeId); }
+    /** All edges entering a node. */
+    function edgesTo(nodeId)   { _ensure(); return _dag.edges.filter(e => e.to   === nodeId); }
 
-    /**
-     * Find a path (array of edges) between two node ids using BFS.
-     * Returns null if no path exists.
-     * Each step is { edge, direction } where direction = 'forward' | 'backward'.
-     */
-    function findPath(fromNodeId, toNodeId) {
-        _ensureInit();
-        if (fromNodeId === toNodeId) return [];
+    function clear() { _ensure(); _dag.nodes.length = 0; _dag.edges.length = 0; }
 
-        // Build adjacency: forward and backward edges
-        const fwd = {}; // nodeId → [edge]
-        const bwd = {}; // nodeId → [edge]
-        _dag.edges.forEach(e => {
-            if (!fwd[e.from]) fwd[e.from] = [];
-            fwd[e.from].push(e);
-            if (!bwd[e.to]) bwd[e.to] = [];
-            bwd[e.to].push(e);
-        });
-
-        // BFS over (nodeId, path_so_far)
-        const visited = new Set([fromNodeId]);
-        const queue = [{ node: fromNodeId, path: [] }];
-
-        while (queue.length) {
-            const { node, path } = queue.shift();
-
-            // Try forward edges
-            for (const edge of (fwd[node] || [])) {
-                if (visited.has(edge.to)) continue;
-                const newPath = [...path, { edge, direction: 'forward' }];
-                if (edge.to === toNodeId) return newPath;
-                visited.add(edge.to);
-                queue.push({ node: edge.to, path: newPath });
-            }
-
-            // Try backward edges
-            for (const edge of (bwd[node] || [])) {
-                if (visited.has(edge.from)) continue;
-                const newPath = [...path, { edge, direction: 'backward' }];
-                if (edge.from === toNodeId) return newPath;
-                visited.add(edge.from);
-                queue.push({ node: edge.from, path: newPath });
-            }
-        }
-        return null; // unreachable
-    }
-
-    /** Get the edge that leads INTO a given node (most recently executed one). */
-    function getIncomingEdge(nodeId) {
-        _ensureInit();
-        // Among all edges pointing to nodeId, prefer executed ones
-        const incoming = _dag.edges.filter(e => e.to === nodeId);
-        return incoming.find(e => e.executed) || incoming[0] || null;
-    }
-
-    /** Get a node by id. */
-    function getNode(nodeId) {
-        _ensureInit();
-        return _dag.nodes.find(n => n.id === nodeId) || null;
-    }
-
-    /** Get all nodes + edges. */
-    function getAll() { _ensureInit(); return _dag; }
-
-    /** Clear the entire DAG (for testing / reset). */
-    function clear() {
-        _ensureInit();
-        _dag.nodes.length = 0;
-        _dag.edges.length = 0;
-    }
-
-    return { addChain, branchFrom, markEdgeExecuted, getEdge, getGraph, findPath,
-             getIncomingEdge, getNode, getAll, clear, init };
+    return { init, addChain, markEdge, getEdge, getNode, getAll, edgesFrom, edgesTo, clear };
 })();

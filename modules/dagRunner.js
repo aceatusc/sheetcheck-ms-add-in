@@ -1,163 +1,412 @@
 /**
  * dagRunner.js
- * Owns the "active chain" of segments stored in DagStore and coordinates execution.
+ *
+ * Single source of truth for:
+ *   - Active chain registry (chainId → chain metadata)
+ *   - Current node position per chain
+ *   - Forward / backward / arbitrary navigation (with undo/redo execution)
+ *   - Edit branching
+ *   - Graph render descriptor (git-style layout data for StepNavigator)
+ *
+ * Navigation model
+ * ────────────────
+ * A "chain" is a linear path through the DAG: rootNode → n1 → n2 → … → nK
+ * The user sits ON a node. The outgoing edge from that node holds the `code`
+ * segment that runs when they advance.
+ *
+ *   stepForward()    — run outgoing edge `code`,    move to its `to` node
+ *   stepBack()       — run incoming edge `undo_code`, move to its `from` node
+ *   navigateTo(id)   — BFS shortest path, run undo_code / code silently for
+ *                      each hop, land on target node
+ *
+ * Graph render descriptor
+ * ───────────────────────
+ * buildRenderGraph(chainId) returns:
+ *   {
+ *     nodes: [{ id, label, state, col, row }],  // state: 'current'|'visited'|'unvisited'
+ *     edges: [{ id, fromId, toId, label,
+ *               isBranch, branchRow,            // branch rows count up from 1
+ *               fromCol, fromRow, toCol, toRow }],
+ *     currentNodeId,
+ *     cols, rows                                 // grid dimensions
+ *   }
+ *
+ * Branches are laid out diagonally (git style): the fork node shares its
+ * column with the main path; each branch occupies its own row below row 0.
  */
 const DagRunner = (() => {
 
-    let _chainsById = {};
+    // chainId → { chainId, taskLabel, segments, rootNodeId, nodeIds[], edgeIds[], currentNodeId }
+    let _chains = {};
     let _activeChainId = null;
 
     function _uid() {
         return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
     }
 
+    // ── Chain management ──────────────────────────────────────────────────────
+
     /**
-     * Stores a new chain in the DAG and returns a chain handle.
-     * @param {string} taskLabel
-     * @param {object[]} segments
+     * Register a new chain from segments returned by /code.
+     * Returns the chain handle (pass chainId to start()).
      */
     function prepareChain(taskLabel, segments) {
-        const chain = DagStore.addChain(taskLabel, segments);
+        const dag = DagStore.addChain(taskLabel, segments);
         const chainId = _uid();
-        _chainsById[chainId] = {
+        const chain = {
             chainId,
             taskLabel,
             segments,
-            ...chain, // rootNodeId, nodeIds, edgeIds
+            rootNodeId:  dag.rootNodeId,
+            nodeIds:     dag.nodeIds,
+            edgeIds:     dag.edgeIds,
+            currentNodeId: dag.rootNodeId,   // user starts at root (before any step)
         };
-        return _chainsById[chainId];
+        _chains[chainId] = chain;
+        return chain;
     }
 
-    function getChain(chainId) {
-        return _chainsById[chainId] || null;
-    }
+    function getChain(chainId)  { return _chains[chainId] || null; }
+    function getActiveChain()   { return _activeChainId ? getChain(_activeChainId) : null; }
 
-    function getActiveChain() {
-        return _activeChainId ? getChain(_activeChainId) : null;
-    }
+    // ── Execution start ───────────────────────────────────────────────────────
 
     /**
-     * Start executing a prepared chain, pausing between steps.
-     * @param {string} chainId
+     * Begin executing a prepared chain.
+     * Hands control to ExecutionEngine which calls stepForward() per step.
      */
     async function start(chainId) {
         const chain = getChain(chainId);
         if (!chain) throw new Error('Unknown chain.');
         _activeChainId = chainId;
 
-        StepNavigator.loadSegments(chain.segments, {
-            chainId,
-            rootNodeId: chain.rootNodeId,
-            nodeIds: chain.nodeIds,
-            edgeIds: chain.edgeIds,
-            taskLabel: chain.taskLabel,
-        });
+        StepNavigator.load(chain);
+        await ExecutionEngine.run(chainId);
+    }
 
-        await ExecutionEngine.run(() => getChain(chainId)?.segments || [], {
-            onStepDone: (i) => {
-                const edgeId = getChain(chainId)?.edgeIds?.[i];
-                if (edgeId) DagStore.markEdgeExecuted(edgeId, false);
-            },
-            onStepFailed: (i) => {
-                const edgeId = getChain(chainId)?.edgeIds?.[i];
-                if (edgeId) DagStore.markEdgeExecuted(edgeId, true);
-            },
-        });
+    // ── Navigation ────────────────────────────────────────────────────────────
+
+    /**
+     * Advance one step: run the outgoing edge's `code`, mark it executed,
+     * move currentNodeId forward.
+     * Returns { edge, segment } or null if already at a leaf.
+     */
+    async function stepForward(chainId) {
+        const chain = getChain(chainId);
+        if (!chain) throw new Error('Unknown chain.');
+
+        const outgoing = DagStore.edgesFrom(chain.currentNodeId);
+        if (!outgoing.length) return null;   // already at end of this branch
+
+        // Follow the main-chain edge if multiple outgoing (edit branches)
+        const edge = _mainEdge(chain, outgoing);
+        if (!edge) return null;
+
+        await _runCode(edge.segment.code);
+        DagStore.markEdge(edge.id, { executed: true, failed: false });
+        chain.currentNodeId = edge.to;
+        return { edge, segment: edge.segment };
     }
 
     /**
-     * Branch from a given index (node) and replace the active chain tail.
-     * Returns the updated chain object.
-     *
-     * @param {string} chainId
-     * @param {number} fromIndex
-     * @param {string} taskLabel
-     * @param {object[]} newSegmentsFromHere
+     * Go one step back: run the incoming edge's `undo_code`, mark it un-executed,
+     * move currentNodeId backward.
+     * Returns { edge, segment } or null if already at root.
      */
-    function applyEdit(chainId, fromIndex, taskLabel, newSegmentsFromHere) {
+    async function stepBack(chainId) {
         const chain = getChain(chainId);
         if (!chain) throw new Error('Unknown chain.');
-        const fromNodeId = chain.nodeIds?.[fromIndex];
-        if (!fromNodeId) throw new Error('Invalid edit point.');
 
-        const branched = DagStore.branchFrom(fromNodeId, taskLabel, newSegmentsFromHere);
-        const prefix = chain.segments.slice(0, fromIndex);
+        const incoming = DagStore.edgesTo(chain.currentNodeId);
+        if (!incoming.length) return null;   // at root
+
+        // Prefer the most recently executed incoming edge
+        const edge = incoming.find(e => e.executed) || incoming[0];
+
+        await _runCode(edge.segment.undo_code);
+        DagStore.markEdge(edge.id, { executed: false, failed: false });
+        chain.currentNodeId = edge.from;
+        return { edge, segment: edge.segment };
+    }
+
+    /**
+     * Navigate instantly to an arbitrary node, running undo/redo along the
+     * BFS shortest path. Silently executes all intermediate edges.
+     * Returns the final node id.
+     */
+    async function navigateTo(chainId, targetNodeId) {
+        const chain = getChain(chainId);
+        if (!chain) throw new Error('Unknown chain.');
+        if (chain.currentNodeId === targetNodeId) return targetNodeId;
+
+        const path = _bfsPath(chain.currentNodeId, targetNodeId);
+        if (!path) throw new Error('No path to target node.');
+
+        for (const hop of path) {
+            if (hop.direction === 'forward') {
+                await _runCode(hop.edge.segment.code);
+                DagStore.markEdge(hop.edge.id, { executed: true, failed: false });
+                chain.currentNodeId = hop.edge.to;
+            } else {
+                await _runCode(hop.edge.segment.undo_code);
+                DagStore.markEdge(hop.edge.id, { executed: false, failed: false });
+                chain.currentNodeId = hop.edge.from;
+            }
+        }
+
+        return chain.currentNodeId;
+    }
+
+    // ── Edit branching ────────────────────────────────────────────────────────
+
+    /**
+     * Replace the active chain from fromIndex onward with newSegments.
+     * The fork hangs off the node at fromIndex in the original chain.
+     * Returns the updated chain.
+     */
+    function applyEdit(chainId, fromIndex, taskLabel, newSegments) {
+        const chain = getChain(chainId);
+        if (!chain) throw new Error('Unknown chain.');
+
+        const forkNodeId = chain.nodeIds[fromIndex];
+        if (!forkNodeId) throw new Error('Invalid edit index.');
+
+        const branched = DagStore.addChain(taskLabel, newSegments, forkNodeId);
 
         const updated = {
             ...chain,
             taskLabel,
-            segments: [...prefix, ...newSegmentsFromHere],
-            rootNodeId: chain.rootNodeId,
-            nodeIds: [...chain.nodeIds.slice(0, fromIndex + 1), ...branched.nodeIds.slice(1)],
-            edgeIds: [...chain.edgeIds.slice(0, fromIndex), ...branched.edgeIds],
+            segments:    [...chain.segments.slice(0, fromIndex), ...newSegments],
+            nodeIds:     [...chain.nodeIds.slice(0, fromIndex + 1), ...branched.nodeIds.slice(1)],
+            edgeIds:     [...chain.edgeIds.slice(0, fromIndex),     ...branched.edgeIds],
+            currentNodeId: forkNodeId,
         };
 
-        _chainsById[chainId] = updated;
+        _chains[chainId] = updated;
         return updated;
     }
 
+    // ── Graph render descriptor ───────────────────────────────────────────────
+
     /**
-     * Derive a graph representation (main row + branch rows) directly from the global DAG.
-     * Returned shape is stable for StepNavigator rendering.
+     * Build a layout-ready graph descriptor for StepNavigator to render.
      *
-     * rows[] item:
-     *  - edgeIds: string[] (ordered)
-     *  - fromMainNodeIndex: number (-1 for main row; otherwise the node index in the main path where it forks)
-     *  - kind: 'main' | 'branch'
+     * Layout rules (git-style):
+     *   - Main chain occupies row 0, columns 0..N
+     *   - Each edit branch forks from its branch-point column and descends
+     *     one row per branch (row 1, 2, …), going diagonally right
+     *   - Nodes carry their state: 'current' | 'visited' | 'unvisited'
      */
-    function getGraphRepresentation(chainId) {
+    function buildRenderGraph(chainId) {
         const chain = getChain(chainId);
-        if (!chain?.nodeIds?.length) return { rows: [], mainEdgeIds: [] };
+        if (!chain) return { nodes: [], edges: [], currentNodeId: null, cols: 0, rows: 1 };
 
         const dag = DagStore.getAll();
-        const edges = Array.isArray(dag?.edges) ? dag.edges : [];
+        const allEdges = dag.edges;
 
-        const edgesByFrom = {};
-        edges.forEach(e => {
-            if (!edgesByFrom[e.from]) edgesByFrom[e.from] = [];
-            edgesByFrom[e.from].push(e);
+        // ── 1. Assign columns to main-chain nodes ──────────────────────────
+        //   nodeId → { col, row }
+        const layout = {};
+        chain.nodeIds.forEach((nid, i) => { layout[nid] = { col: i, row: 0 }; });
+
+        // ── 2. Walk branches (BFS from fork nodes not on main chain) ──────
+        const mainNodeSet = new Set(chain.nodeIds);
+        const mainEdgeSet = new Set(chain.edgeIds);
+
+        let branchRow = 0;
+        // Map: edgeId → branchRow (for branch edges)
+        const branchRowMap = {};
+
+        chain.nodeIds.forEach((forkNodeId, forkCol) => {
+            const outgoing = allEdges.filter(e => e.from === forkNodeId && !mainEdgeSet.has(e.id));
+            outgoing.forEach(startEdge => {
+                branchRow++;
+                // Walk this branch linearly
+                let col = forkCol;   // branch starts at fork column (diagonal start)
+                let cur = startEdge;
+                const visited = new Set();
+                while (cur && !visited.has(cur.id)) {
+                    visited.add(cur.id);
+                    branchRowMap[cur.id] = branchRow;
+                    col++;
+                    if (!layout[cur.to]) layout[cur.to] = { col, row: branchRow };
+                    const nextOuts = allEdges.filter(e => e.from === cur.to && !mainEdgeSet.has(e.id));
+                    cur = nextOuts.length === 1 ? nextOuts[0] : null;
+                }
+            });
         });
 
-        const mainEdgeIds = chain.edgeIds || [];
-        const mainEdgeSet = new Set(mainEdgeIds);
+        const totalRows = branchRow + 1;
+        const totalCols = chain.nodeIds.length;
 
-        const rows = [{
-            kind: 'main',
-            edgeIds: mainEdgeIds,
-            fromMainNodeIndex: -1,
-        }];
+        // ── 3. Build node descriptors ──────────────────────────────────────
+        const visitedNodeIds = _visitedNodes(chain);
+        const currentNodeId  = chain.currentNodeId;
 
-        // For each node on the main path, include non-main outgoing edges as branches.
-        chain.nodeIds.forEach((nodeId, nodeIdx) => {
-            const outgoing = edgesByFrom[nodeId] || [];
-            outgoing
-                .filter(e => !mainEdgeSet.has(e.id))
-                .forEach(startEdge => {
-                    const branchEdgeIds = [];
-                    let cur = startEdge;
-                    const visited = new Set();
+        const nodesOut = [];
+        const seenNodes = new Set();
 
-                    while (cur && !visited.has(cur.id)) {
-                        visited.add(cur.id);
-                        branchEdgeIds.push(cur.id);
-                        const nextOut = edgesByFrom[cur.to] || [];
-                        if (nextOut.length !== 1) break;
-                        cur = nextOut[0];
-                    }
+        // Main chain nodes
+        chain.nodeIds.forEach(nid => {
+            if (seenNodes.has(nid)) return;
+            seenNodes.add(nid);
+            const n = DagStore.getNode(nid);
+            const pos = layout[nid] || { col: 0, row: 0 };
+            nodesOut.push({
+                id:    nid,
+                label: n?.label || '',
+                state: nid === currentNodeId ? 'current'
+                     : visitedNodeIds.has(nid) ? 'visited'
+                     : 'unvisited',
+                col:   pos.col,
+                row:   pos.row,
+            });
+        });
 
-                    if (branchEdgeIds.length) {
-                        rows.push({
-                            kind: 'branch',
-                            edgeIds: branchEdgeIds,
-                            fromMainNodeIndex: nodeIdx,
-                        });
-                    }
+        // Branch nodes (destination nodes of branch edges)
+        Object.keys(branchRowMap).forEach(eid => {
+            const edge = DagStore.getEdge(eid);
+            if (!edge) return;
+            [edge.from, edge.to].forEach(nid => {
+                if (seenNodes.has(nid)) return;
+                seenNodes.add(nid);
+                const n   = DagStore.getNode(nid);
+                const pos = layout[nid] || { col: 0, row: 0 };
+                nodesOut.push({
+                    id:    nid,
+                    label: n?.label || '',
+                    state: nid === currentNodeId ? 'current'
+                         : visitedNodeIds.has(nid) ? 'visited'
+                         : 'unvisited',
+                    col:   pos.col,
+                    row:   pos.row,
                 });
+            });
         });
 
-        return { rows, mainEdgeIds };
+        // ── 4. Build edge descriptors ──────────────────────────────────────
+        const edgesOut = [];
+
+        // Main chain edges
+        chain.edgeIds.forEach(eid => {
+            const e = DagStore.getEdge(eid);
+            if (!e) return;
+            const fp = layout[e.from] || { col: 0, row: 0 };
+            const tp = layout[e.to]   || { col: 1, row: 0 };
+            edgesOut.push({
+                id:        eid,
+                fromId:    e.from,
+                toId:      e.to,
+                label:     e.segment?.description || '',
+                isBranch:  false,
+                branchRow: 0,
+                fromCol:   fp.col, fromRow: fp.row,
+                toCol:     tp.col, toRow:   tp.row,
+                executed:  e.executed,
+                failed:    e.failed,
+            });
+        });
+
+        // Branch edges
+        Object.entries(branchRowMap).forEach(([eid, bRow]) => {
+            const e = DagStore.getEdge(eid);
+            if (!e) return;
+            const fp = layout[e.from] || { col: 0, row: 0 };
+            const tp = layout[e.to]   || { col: 1, row: bRow };
+            edgesOut.push({
+                id:        eid,
+                fromId:    e.from,
+                toId:      e.to,
+                label:     e.segment?.description || '',
+                isBranch:  true,
+                branchRow: bRow,
+                fromCol:   fp.col, fromRow: fp.row,
+                toCol:     tp.col, toRow:   tp.row,
+                executed:  e.executed,
+                failed:    e.failed,
+            });
+        });
+
+        return {
+            nodes:         nodesOut,
+            edges:         edgesOut,
+            currentNodeId,
+            cols:          totalCols,
+            rows:          totalRows,
+        };
     }
 
-    return { prepareChain, start, applyEdit, getChain, getActiveChain, getGraphRepresentation };
-})();
+    // ── Private helpers ───────────────────────────────────────────────────────
 
+    /** BFS over the full DAG; returns [{edge, direction}] or null. */
+    function _bfsPath(fromNodeId, toNodeId) {
+        if (fromNodeId === toNodeId) return [];
+        const dag = DagStore.getAll();
+
+        const fwd = {}; // nodeId → edges[]
+        const bwd = {};
+        dag.edges.forEach(e => {
+            (fwd[e.from] = fwd[e.from] || []).push(e);
+            (bwd[e.to]   = bwd[e.to]   || []).push(e);
+        });
+
+        const visited = new Set([fromNodeId]);
+        const queue   = [{ node: fromNodeId, path: [] }];
+
+        while (queue.length) {
+            const { node, path } = queue.shift();
+            for (const e of (fwd[node] || [])) {
+                if (visited.has(e.to)) continue;
+                const p = [...path, { edge: e, direction: 'forward' }];
+                if (e.to === toNodeId) return p;
+                visited.add(e.to);
+                queue.push({ node: e.to, path: p });
+            }
+            for (const e of (bwd[node] || [])) {
+                if (visited.has(e.from)) continue;
+                const p = [...path, { edge: e, direction: 'backward' }];
+                if (e.from === toNodeId) return p;
+                visited.add(e.from);
+                queue.push({ node: e.from, path: p });
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Among a list of outgoing edges, prefer the one on the current main chain.
+     * Falls back to first edge if none matches (shouldn't happen on a valid chain).
+     */
+    function _mainEdge(chain, candidates) {
+        const mainSet = new Set(chain.edgeIds);
+        return candidates.find(e => mainSet.has(e.id)) || candidates[0] || null;
+    }
+
+    /** Set of all nodeIds that have at least one executed incoming edge. */
+    function _visitedNodes(chain) {
+        const visited = new Set();
+        const dag = DagStore.getAll();
+        dag.edges.forEach(e => { if (e.executed) visited.add(e.to); });
+        // Root is always "visited" once any step has been taken
+        if (visited.size > 0) visited.add(chain.rootNodeId);
+        return visited;
+    }
+
+    async function _runCode(code) {
+        if (!code) return;
+        const fn = new (Object.getPrototypeOf(async function(){}).constructor)(code);
+        await fn();
+    }
+
+    return {
+        prepareChain,
+        start,
+        getChain,
+        getActiveChain,
+        stepForward,
+        stepBack,
+        navigateTo,
+        applyEdit,
+        buildRenderGraph,
+    };
+})();

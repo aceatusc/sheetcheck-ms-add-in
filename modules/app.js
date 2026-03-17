@@ -1,18 +1,24 @@
 /**
  * app.js
  * Entry point — initializes Office and wires all modules together.
+ *
+ * Init order matters:
+ *   DagStore  (no deps)
+ *   RubricManager (DOM only)
+ *   StepNavigator (DOM + DagRunner + RubricManager)
+ *   ChatManager   (DOM + DagRunner + RubricManager)
  */
 (async () => {
     const { host } = await OfficeInit.init();
 
     if (!OfficeInit.isExcel()) {
         console.warn('[App] This add-in is designed for Excel.');
-        // PLACEHOLDER: show a friendly "unsupported host" message in the UI
     }
 
+    DagStore.init();
+    RubricManager.init();
     StepNavigator.init();
     ChatManager.init();
-    DagStore.init();
 
     console.log('[App] Ready.');
 })();
