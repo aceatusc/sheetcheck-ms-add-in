@@ -4,26 +4,13 @@
  * Captures the full used-range state before each forward step and restores
  * it verbatim on backward navigation.
  *
- * Two bugs fixed vs previous version:
- *
- *  Bug 1 — address scoping: restore() was only clearing/writing the snapshot's
- *  address (e.g. "A1:E7"). If a later step added rows outside that region,
- *  going back left those rows intact. Fix: restore() clears the ENTIRE current
- *  used range before writing the snapshot back, so the sheet is fully reset.
- *
- *  Bug 2 — scalar format properties: Office.js returns a scalar (e.g. null,
- *  "#000000") when all cells in a range share the same format value, instead
- *  of a 2D array. Storing that scalar and applying it back to every cell
- *  overwrites real per-cell formatting from earlier steps. Fix: after loading
- *  range-level format properties, expand any scalar into a proper rows×cols 2D
- *  array during capture so restore() always has exact per-cell values.
- *
  * Snapshot shape:
  * {
  *   address:      string,      // used-range address at capture time, sheet prefix stripped
  *   rows:         number,
  *   cols:         number,
  *   formulas:     string[][],  // always 2D
+ *   values:       any[][],     // always 2D — used for non-formula cells
  *   numberFormat: string[][],  // always 2D
  *   fill:         string[][],  // always 2D, null = no fill
  *   fontColor:    string[][],  // always 2D, null = default
@@ -38,7 +25,10 @@ const WorksheetSnapshot = (() => {
 
     const MAX_CELLS = 5000;
 
-    // ── Public API ────────────────────────────────────────────────────────────
+    const VALID_ALIGN = ['Left','Center','Right','Fill','Justify',
+                         'CenterAcrossSelection','Distributed','General'];
+
+    // ── capture() ─────────────────────────────────────────────────────────────
 
     async function capture() {
         let snapshot = null;
@@ -63,14 +53,8 @@ const WorksheetSnapshot = (() => {
                     return;
                 }
 
-                // Load formulas + values + numberFormat
-                // We need values as fallback because the batch formulas write
-                // rejects empty strings — we restore cell-by-cell instead.
-                used.load(['formulas', 'values', 'numberFormat']);
-
-                // Load format properties — Office.js MAY return scalars when
-                // all cells share the same value. We load them here then expand below.
                 used.load([
+                    'formulas', 'values', 'numberFormat',
                     'format/fill/color',
                     'format/font/color',
                     'format/font/bold',
@@ -79,24 +63,18 @@ const WorksheetSnapshot = (() => {
                 ]);
                 await ctx.sync();
 
-                const addr = _stripSheet(used.address);
-
-                // Expand any scalar format values into proper rows×cols 2D arrays.
-                // This is the critical fix: a scalar null/string means "all cells
-                // share this value" — we must record it per-cell so restore() can
-                // write the exact right value back to each cell individually.
                 snapshot = {
-                    address:      addr,
+                    address:      _stripSheet(used.address),
                     rows,
                     cols,
                     formulas:     _copy2d(used.formulas),
                     values:       _copy2d(used.values),
                     numberFormat: _copy2d(used.numberFormat),
-                    fill:         _expand(used.format.fill.color,              rows, cols),
-                    fontColor:    _expand(used.format.font.color,              rows, cols),
-                    fontBold:     _expand(used.format.font.bold,               rows, cols),
-                    fontSize:     _expand(used.format.font.size,               rows, cols),
-                    alignment:    _expand(used.format.horizontalAlignment,     rows, cols),
+                    fill:         _expand(used.format.fill.color,          rows, cols),
+                    fontColor:    _expand(used.format.font.color,          rows, cols),
+                    fontBold:     _expand(used.format.font.bold,           rows, cols),
+                    fontSize:     _expand(used.format.font.size,           rows, cols),
+                    alignment:    _expand(used.format.horizontalAlignment, rows, cols),
                 };
             });
         } catch (err) {
@@ -105,34 +83,20 @@ const WorksheetSnapshot = (() => {
         return snapshot;
     }
 
-    /**
-     * Restore the worksheet to a previously captured snapshot.
-     *
-     * Strategy:
-     *   1. Clear the ENTIRE current used range (not just the snapshot region) so
-     *      any cells added by steps after this snapshot are wiped first.
-     *   2. Also clear the snapshot region explicitly in case the current used range
-     *      is smaller (e.g. user deleted data).
-     *   3. Write formulas + numberFormat as 2D arrays (fast, one call each).
-     *   4. Write fill / font / alignment per-cell (all queued before one ctx.sync).
-     */
+    // ── restore() ─────────────────────────────────────────────────────────────
+
     async function restore(snapshot) {
         if (!snapshot) throw new Error('No snapshot to restore.');
 
         await Excel.run(async (ctx) => {
             const sheet = ctx.workbook.worksheets.getActiveWorksheet();
 
-            // ── 1. Clear everything that currently exists ─────────────────────
-            // This removes cells that were added by steps occurring AFTER the
-            // snapshot was taken, which lie outside snapshot.address.
+            // ── 1. Clear everything currently on the sheet ────────────────────
+            // Wipes cells added by steps that ran after this snapshot was taken.
             const currentUsed = sheet.getUsedRangeOrNullObject();
             currentUsed.load('isNullObject');
             await ctx.sync();
-            if (!currentUsed.isNullObject) {
-                currentUsed.clear('All');
-            }
-            // Also clear the snapshot region itself (covers case where current
-            // used range shrank and misses part of what we need to restore).
+            if (!currentUsed.isNullObject) currentUsed.clear('All');
             sheet.getRange(snapshot.address).clear('All');
             await ctx.sync();
 
@@ -141,56 +105,85 @@ const WorksheetSnapshot = (() => {
 
             const { startRow, startCol } = _parseTopLeft(snapshot.address);
 
-            // ── 2 & 3. Restore content + formatting per-cell ─────────────────
-            // We restore formulas/values cell-by-cell rather than as a batch
-            // 2D array write because Office.js rejects empty strings ("") in
-            // the formulas array and throws for the entire write. Per-cell
-            // writes skip empty cells cleanly. All writes are queued before
-            // a single ctx.sync so there is still only one round-trip.
+            // ── 2. Restore content + formatting per-cell ──────────────────────
+            // Per-cell writes instead of batch 2D array writes because:
+            //   - rng.formulas rejects empty strings "" → throws for whole array
+            //   - Per-cell writes safely skip empty cells
+            // All property sets are queued before the single ctx.sync below.
+            //
+            // _set() wraps each write to produce a detailed error message that
+            // includes the cell address, property name, and exact value rejected.
 
-            const VALID_ALIGN = ['Left','Center','Right','Fill','Justify','CenterAcrossSelection','Distributed','General'];
+            const _set = (cellAddr, prop, val, writeFn) => {
+                try {
+                    writeFn();
+                } catch (e) {
+                    const display = val === null      ? 'null'
+                                  : val === undefined ? 'undefined'
+                                  : `${typeof val} ${JSON.stringify(String(val)).slice(0, 60)}`;
+                    throw new Error(
+                        `[Snapshot restore] cell ${cellAddr}, prop "${prop}", ` +
+                        `value ${display} — ${e.message}`
+                    );
+                }
+            };
 
             for (let r = 0; r < rows; r++) {
                 for (let c = 0; c < cols; c++) {
-                    const cell = sheet.getRange(_cellAddr(startRow + r, startCol + c));
-
-                    // Content: write formula if starts with '=', raw value otherwise.
-                    // Empty cells are already cleared — writing '' to cell.formulas throws.
+                    const addr    = _cellAddr(startRow + r, startCol + c);
+                    const cell    = sheet.getRange(addr);
                     const formula = snapshot.formulas[r][c];
                     const value   = snapshot.values[r][c];
+                    const nf      = snapshot.numberFormat[r][c];
+                    const fill    = snapshot.fill[r][c];
+                    const fc      = snapshot.fontColor[r][c];
+                    const bold    = snapshot.fontBold[r][c];
+                    const size    = snapshot.fontSize[r][c];
+                    const align   = snapshot.alignment[r][c];
+
+                    // Content
                     if (typeof formula === 'string' && formula.startsWith('=')) {
-                        cell.formulas = [[formula]];
+                        _set(addr, 'formulas', formula,
+                            () => { cell.formulas = [[formula]]; });
                     } else if (value !== null && value !== undefined && value !== '') {
-                        cell.values = [[value]];
+                        _set(addr, 'values', value,
+                            () => { cell.values = [[value]]; });
                     }
 
-                    // Number format — null/undefined/''/0 → 'General'
-                    const nf = snapshot.numberFormat[r][c];
-                    cell.numberFormat = [[(nf === null || nf === undefined || nf === '') ? 'General' : String(nf)]];
+                    // Number format
+                    const nfSafe = (nf === null || nf === undefined || nf === '')
+                                    ? 'General' : String(nf);
+                    _set(addr, 'numberFormat', nfSafe,
+                        () => { cell.numberFormat = [[nfSafe]]; });
 
-                    // Fill — clear() for no-fill; only set a valid hex/named string
-                    const fill = snapshot.fill[r][c];
+                    // Fill
                     if (fill && typeof fill === 'string' && fill !== 'null') {
-                        cell.format.fill.color = fill;
+                        _set(addr, 'fill.color', fill,
+                            () => { cell.format.fill.color = fill; });
                     } else {
                         cell.format.fill.clear();
                     }
 
-                    // Font color — null/falsy resets to automatic; string "null" also treated as reset
-                    const fc = snapshot.fontColor[r][c];
-                    cell.format.font.color = (fc && typeof fc === 'string' && fc !== 'null') ? fc : null;
+                    // Font color
+                    const fcSafe = (fc && typeof fc === 'string' && fc !== 'null') ? fc : null;
+                    _set(addr, 'font.color', fcSafe,
+                        () => { cell.format.font.color = fcSafe; });
 
                     // Font bold
-                    cell.format.font.bold = !!snapshot.fontBold[r][c];
+                    _set(addr, 'font.bold', bold,
+                        () => { cell.format.font.bold = !!bold; });
 
-                    // Font size — only set if non-zero (0 means "default")
-                    const size = snapshot.fontSize[r][c];
-                    if (size) cell.format.font.size = size;
+                    // Font size
+                    if (size) {
+                        _set(addr, 'font.size', size,
+                            () => { cell.format.font.size = size; });
+                    }
 
-                    // Alignment — only valid enum strings accepted, '' throws
-                    const align = snapshot.alignment[r][c];
-                    cell.format.horizontalAlignment =
-                        (align && VALID_ALIGN.includes(align)) ? align : 'General';
+                    // Alignment
+                    const alignSafe = (align && VALID_ALIGN.includes(align))
+                                       ? align : 'General';
+                    _set(addr, 'horizontalAlignment', alignSafe,
+                        () => { cell.format.horizontalAlignment = alignSafe; });
                 }
             }
 
@@ -202,31 +195,18 @@ const WorksheetSnapshot = (() => {
 
     /**
      * Expand a range-level format property into a guaranteed rows×cols 2D array.
-     *
-     * Office.js returns:
-     *   - A proper 2D array when cells differ (the common case after styling)
-     *   - A scalar when ALL cells share the same value (e.g. null fill everywhere,
-     *     or bold=false everywhere)
-     *
-     * We always want a 2D array so restore() can index [r][c] unconditionally.
+     * Office.js returns a scalar when all cells share the same value.
      */
     function _expand(value, rows, cols) {
-        // Already a proper 2D array — deep-copy it
         if (Array.isArray(value) && Array.isArray(value[0])) {
             return value.map(row => [...row]);
         }
-
-        // 1D array (shouldn't happen for these properties, but handle it)
         if (Array.isArray(value)) {
-            return Array.from({ length: rows }, (_, r) =>
-                Array.from({ length: cols }, (_, c) => value[c] ?? null)
-            );
+            return Array.from({ length: rows }, () =>
+                Array.from({ length: cols }, (_, c) => value[c] ?? null));
         }
-
-        // Scalar — every cell shares this value
         return Array.from({ length: rows }, () =>
-            Array.from({ length: cols }, () => value)
-        );
+            Array.from({ length: cols }, () => value));
     }
 
     function _stripSheet(addr) {
@@ -237,7 +217,10 @@ const WorksheetSnapshot = (() => {
     function _parseTopLeft(addr) {
         const m = addr.match(/^([A-Z]+)(\d+)/i);
         if (!m) return { startRow: 0, startCol: 0 };
-        return { startRow: parseInt(m[2], 10) - 1, startCol: _colIndex(m[1].toUpperCase()) };
+        return {
+            startRow: parseInt(m[2], 10) - 1,
+            startCol: _colIndex(m[1].toUpperCase()),
+        };
     }
 
     function _cellAddr(row, col) {
@@ -258,7 +241,8 @@ const WorksheetSnapshot = (() => {
     }
 
     function _warn(msg) {
-        try { ExecutionEngine.log('err', `[Snapshot] ${msg}`); } catch (_) { console.warn('[WorksheetSnapshot]', msg); }
+        try { ExecutionEngine.log('err', `[Snapshot] ${msg}`); }
+        catch (_) { console.warn('[WorksheetSnapshot]', msg); }
     }
 
     return { capture, restore };
