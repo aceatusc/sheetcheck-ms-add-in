@@ -271,37 +271,57 @@ const DagRunner = (() => {
         // ── 1. Assign original chain to row 0 ────────────────────────────
         originalNodeIds.forEach((nid, i) => { layout[nid] = { col: i, row: 0 }; });
 
-        // ── 2. Collect all non-original edges, grouped by their fork point ─
-        // Walk the entire DAG. For every node that has a layout position,
-        // look for outgoing edges NOT in the original chain.
-        // Each such set of edges forms a branch path starting from that node.
-        // Assign each branch path its own row, continuing from the fork column.
+        // ── 2. Walk all branches and assign rows ──────────────────────────
+        //
+        // A "branch" is a sequence of edges that all lie on the same horizontal
+        // row. A branch starts whenever a node with an existing layout position
+        // has 1+ outgoing non-original edges leading to nodes with NO layout yet.
+        //
+        // We walk the entire DAG in BFS order. For each placed node, we collect
+        // its unplaced non-original outgoing edges. Each one that leads to an
+        // unplaced node starts (or continues) a branch.
+        //
+        // The distinction between "continue same branch" vs "start new branch":
+        //   - If the parent node was the LAST node placed on a branch (its row > 0
+        //     and it has exactly one unplaced non-original successor), we CONTINUE
+        //     that branch on the same row.
+        //   - If the parent node has MULTIPLE unplaced non-original successors,
+        //     each one gets its own new row (a fork).
+        //   - If the parent is on row 0 (original chain) and has unplaced
+        //     non-original successors, each gets its own new row.
+        //
+        // nodeRow tracks which branch row a node belongs to (0 = original chain).
+        const nodeRow = {};  // nodeId → row
+        originalNodeIds.forEach(nid => { nodeRow[nid] = 0; });
 
         let nextRow = 1;
 
-        // Process nodes level-by-level (BFS order by column then row) so that
-        // parent branches are assigned before child branches.
-        const queue = originalNodeIds.map(nid => nid); // start with original nodes
+        const queue  = [...originalNodeIds];
         const queued = new Set(originalNodeIds);
 
         let head = 0;
         while (head < queue.length) {
             const nodeId = queue[head++];
-            const pos = layout[nodeId];
+            const pos    = layout[nodeId];
             if (!pos) continue;
 
-            // Find all non-original outgoing edges from this node
-            const forkEdges = (edgesFrom[nodeId] || [])
+            // Outgoing non-original edges leading to nodes not yet placed
+            const unplaced = (edgesFrom[nodeId] || [])
                 .filter(e => !originalEdgeSet.has(e.id) && !layout[e.to]);
 
-            forkEdges.forEach(startEdge => {
-                // Allocate a new row for this branch
-                const branchRow = nextRow++;
+            if (!unplaced.length) continue;
 
-                // Walk the branch linearly: follow edges where the destination
-                // doesn't have a layout yet. Stop when we hit a node already
-                // placed (e.g. a node shared with another path) or a fork.
-                let col = pos.col;   // branch starts at the fork node's column
+            // If this node is on a branch row (not row 0) AND has exactly one
+            // unplaced successor, that successor continues on the SAME row.
+            // Otherwise every unplaced successor starts a NEW row.
+            const parentRow = nodeRow[nodeId] ?? 0;
+            const isBranchContinuation = parentRow > 0 && unplaced.length === 1;
+
+            unplaced.forEach((startEdge, i) => {
+                const branchRow = isBranchContinuation ? parentRow : nextRow++;
+
+                // Walk this branch linearly from the start edge
+                let col = pos.col;
                 let cur = startEdge;
                 const seen = new Set();
 
@@ -311,6 +331,7 @@ const DagRunner = (() => {
 
                     if (!layout[cur.to]) {
                         layout[cur.to] = { col, row: branchRow };
+                        nodeRow[cur.to] = branchRow;
                     }
 
                     if (!queued.has(cur.to)) {
@@ -318,8 +339,8 @@ const DagRunner = (() => {
                         queue.push(cur.to);
                     }
 
-                    // Continue along the branch: follow the single outgoing
-                    // edge whose destination doesn't have a layout yet.
+                    // Continue straight if the next node is unplaced and there
+                    // is only one non-original successor (no fork yet).
                     const nexts = (edgesFrom[cur.to] || [])
                         .filter(ne => !originalEdgeSet.has(ne.id) && !layout[ne.to]);
                     cur = nexts.length === 1 ? nexts[0] : null;
