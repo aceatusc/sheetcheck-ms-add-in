@@ -63,8 +63,10 @@ const WorksheetSnapshot = (() => {
                     return;
                 }
 
-                // Load formulas + numberFormat (always 2D from Office.js)
-                used.load(['formulas', 'numberFormat']);
+                // Load formulas + values + numberFormat
+                // We need values as fallback because the batch formulas write
+                // rejects empty strings — we restore cell-by-cell instead.
+                used.load(['formulas', 'values', 'numberFormat']);
 
                 // Load format properties — Office.js MAY return scalars when
                 // all cells share the same value. We load them here then expand below.
@@ -88,6 +90,7 @@ const WorksheetSnapshot = (() => {
                     rows,
                     cols,
                     formulas:     _copy2d(used.formulas),
+                    values:       _copy2d(used.values),
                     numberFormat: _copy2d(used.numberFormat),
                     fill:         _expand(used.format.fill.color,              rows, cols),
                     fontColor:    _expand(used.format.font.color,              rows, cols),
@@ -136,22 +139,34 @@ const WorksheetSnapshot = (() => {
             const { rows, cols } = snapshot;
             if (!rows || !cols) return;
 
-            const rng = sheet.getRange(snapshot.address);
-
-            // ── 2. Restore formulas and number formats (2D array writes) ──────
-            rng.formulas     = snapshot.formulas;
-            // numberFormat rejects null — replace with "General" (Office.js default)
-            rng.numberFormat = snapshot.numberFormat.map(row =>
-                row.map(v => (v === null || v === undefined || v === "") ? "General" : v)
-            );
-
-            // ── 3. Restore fill / font / alignment per-cell ───────────────────
-            // All property sets are queued before ctx.sync — one round-trip total.
             const { startRow, startCol } = _parseTopLeft(snapshot.address);
+
+            // ── 2 & 3. Restore content + formatting per-cell ─────────────────
+            // We restore formulas/values cell-by-cell rather than as a batch
+            // 2D array write because Office.js rejects empty strings ("") in
+            // the formulas array and throws for the entire write. Per-cell
+            // writes skip empty cells cleanly. All writes are queued before
+            // a single ctx.sync so there is still only one round-trip.
+
+            const VALID_ALIGN = ['Left','Center','Right','Fill','Justify','CenterAcrossSelection','Distributed','General'];
 
             for (let r = 0; r < rows; r++) {
                 for (let c = 0; c < cols; c++) {
                     const cell = sheet.getRange(_cellAddr(startRow + r, startCol + c));
+
+                    // Content: write formula if starts with '=', raw value otherwise.
+                    // Empty cells are already cleared — writing '' to cell.formulas throws.
+                    const formula = snapshot.formulas[r][c];
+                    const value   = snapshot.values[r][c];
+                    if (typeof formula === 'string' && formula.startsWith('=')) {
+                        cell.formulas = [[formula]];
+                    } else if (value !== null && value !== undefined && value !== '') {
+                        cell.values = [[value]];
+                    }
+
+                    // Number format — null/undefined/''/0 → 'General'
+                    const nf = snapshot.numberFormat[r][c];
+                    cell.numberFormat = [[(nf === null || nf === undefined || nf === '') ? 'General' : String(nf)]];
 
                     // Fill — clear() for no-fill; only set a valid hex/named string
                     const fill = snapshot.fill[r][c];
@@ -172,9 +187,7 @@ const WorksheetSnapshot = (() => {
                     const size = snapshot.fontSize[r][c];
                     if (size) cell.format.font.size = size;
 
-                    // Alignment — Office.js only accepts specific enum strings;
-                    // empty string or any non-enum value throws "invalid argument"
-                    const VALID_ALIGN = ['Left','Center','Right','Fill','Justify','CenterAcrossSelection','Distributed','General'];
+                    // Alignment — only valid enum strings accepted, '' throws
                     const align = snapshot.alignment[r][c];
                     cell.format.horizontalAlignment =
                         (align && VALID_ALIGN.includes(align)) ? align : 'General';
