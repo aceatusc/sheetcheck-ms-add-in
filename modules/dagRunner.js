@@ -143,9 +143,17 @@ const DagRunner = (() => {
     }
 
     /**
-     * Navigate instantly to an arbitrary node, running undo/redo along the
-     * BFS shortest path. Silently executes all intermediate edges.
-     * Returns the final node id.
+     * Navigate to an arbitrary node by executing the BFS shortest path.
+     *
+     * Each hop runs the SPECIFIC edge found by BFS — not re-derived via
+     * stepForward/stepBack which would follow the wrong branch.
+     *
+     * Backward hop: restore snapshot from edge.from, un-mark edge.
+     * Forward hop:  capture snapshot on current node, run edge.segment.code,
+     *               mark edge executed, advance currentNodeId.
+     *
+     * After arrival, chain.edgeIds is updated to reflect the path through
+     * the target node so subsequent stepForward calls continue correctly.
      */
     async function navigateTo(chainId, targetNodeId) {
         const chain = getChain(chainId);
@@ -156,12 +164,45 @@ const DagRunner = (() => {
         if (!path) throw new Error('No path to target node.');
 
         for (const hop of path) {
-            if (hop.direction === 'forward') {
-                await stepForward(chainId);
+            const edge = hop.edge;
+            const desc = edge.segment?.description || edge.id;
+
+            if (hop.direction === 'backward') {
+                _log('info', `↩ Restoring snapshot: ${desc}`);
+                const snapshot = DagStore.getNodeSnapshot(edge.from);
+                if (!snapshot) {
+                    _log('err', `✗ No snapshot for "${desc}".`);
+                    throw new Error(`No snapshot available for "${desc}".`);
+                }
+                try {
+                    await WorksheetSnapshot.restore(snapshot);
+                } catch (err) {
+                    _log('err', `✗ Restore failed (${desc}): ${err.message}`);
+                    throw err;
+                }
+                DagStore.markEdge(edge.id, { executed: false, failed: false });
+                chain.currentNodeId = edge.from;
+                _log('ok', `↩ Restored to before: ${desc}`);
+
             } else {
-                await stepBack(chainId);
+                _log('info', `▶ Applying: ${desc}`);
+                const snapshot = await WorksheetSnapshot.capture();
+                DagStore.setNodeSnapshot(chain.currentNodeId, snapshot);
+                try {
+                    await _runCode(edge.segment.code);
+                } catch (err) {
+                    _log('err', `✗ Apply failed (${desc}): ${err.message}`);
+                    throw err;
+                }
+                DagStore.markEdge(edge.id, { executed: true, failed: false });
+                chain.currentNodeId = edge.to;
+                _log('ok', `✓ Applied: ${desc}`);
             }
         }
+
+        // Update chain.edgeIds to match the path leading to the target node
+        // so stepForward continues correctly from the new position.
+        _updateActiveEdges(chain, targetNodeId);
 
         return chain.currentNodeId;
     }
@@ -333,6 +374,35 @@ const DagRunner = (() => {
     }
 
     // ── Private helpers ───────────────────────────────────────────────────────
+
+    /**
+     * After navigating to a node on a different branch, update chain.edgeIds
+     * to the sequence of edges that leads from rootNodeId to targetNodeId.
+     * This ensures stepForward follows the correct outgoing edge from there.
+     * We reconstruct the edge path by tracing parent edges from targetNodeId
+     * back to the root using executed edges.
+     */
+    function _updateActiveEdges(chain, targetNodeId) {
+        // Walk backward from targetNodeId to root using executed incoming edges,
+        // collecting the edge sequence, then reverse it.
+        const edgePath = [];
+        let cur = targetNodeId;
+        const visited = new Set();
+
+        while (cur !== chain.rootNodeId && !visited.has(cur)) {
+            visited.add(cur);
+            const incoming = DagStore.edgesTo(cur);
+            // Prefer executed edge; the path we just traversed is marked executed
+            const e = incoming.find(ed => ed.executed) || incoming[0];
+            if (!e) break;
+            edgePath.unshift(e.id);
+            cur = e.from;
+        }
+
+        if (edgePath.length > 0) {
+            chain.edgeIds = edgePath;
+        }
+    }
 
     /** BFS over the full DAG; returns [{edge, direction}] or null. */
     function _bfsPath(fromNodeId, toNodeId) {
