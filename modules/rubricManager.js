@@ -87,10 +87,9 @@ const RubricManager = (() => {
         return new Promise(resolve => {
             _advanceResolve = resolve;
             // Hand off to StepNavigator: the very next → click should fire this teardown
-            StepNavigator.setGateMode('rubric', () => {
+            StepNavigator.setGateMode(() => {
                 if (_advanceResolve) { const r = _advanceResolve; _advanceResolve = null; r(); }
-                _overlay.classList.remove('rubric-gate', 'visible');
-                _chatPanel.classList.remove('nav-active');
+                StepNavigator.dismissGate('rubric');
                 showPanel(false);
             });
         });
@@ -183,10 +182,9 @@ const RubricManager = (() => {
 
         return new Promise(resolve => {
             _advanceResolve = resolve;
-            StepNavigator.setGateMode('verify', () => {
+            StepNavigator.setGateMode(() => {
                 if (_advanceResolve) { const r = _advanceResolve; _advanceResolve = null; r(); }
-                _overlay.classList.remove('verify-gate', 'visible');
-                _chatPanel.classList.remove('nav-active');
+                StepNavigator.dismissGate('verify');
                 showPanel(false);
             });
         });

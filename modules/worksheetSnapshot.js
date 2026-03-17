@@ -33,10 +33,9 @@ const WorksheetSnapshot = (() => {
 
     /**
      * Capture the full used-range state of the active worksheet.
-     * The `_ranges` parameter is accepted but intentionally unused — see header.
      * @returns {object|null}
      */
-    async function capture(_ranges) {
+    async function capture() {
         let snapshot = null;
         try {
             await Excel.run(async (ctx) => {

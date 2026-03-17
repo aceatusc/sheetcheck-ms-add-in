@@ -39,7 +39,6 @@ const DagStore = (() => {
      */
     function addChain(taskLabel, segments, fromNodeId = null) {
         _ensure();
-        const now = Date.now();
 
         let rootId = fromNodeId;
         if (!rootId) {

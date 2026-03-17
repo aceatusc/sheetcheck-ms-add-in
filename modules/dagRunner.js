@@ -38,7 +38,6 @@ const DagRunner = (() => {
 
     // chainId → { chainId, taskLabel, segments, rootNodeId, nodeIds[], edgeIds[], currentNodeId }
     let _chains = {};
-    let _activeChainId = null;
 
     function _uid() {
         return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
@@ -67,7 +66,6 @@ const DagRunner = (() => {
     }
 
     function getChain(chainId)  { return _chains[chainId] || null; }
-    function getActiveChain()   { return _activeChainId ? getChain(_activeChainId) : null; }
 
     // ── Execution start ───────────────────────────────────────────────────────
 
@@ -78,26 +76,11 @@ const DagRunner = (() => {
     async function start(chainId) {
         const chain = getChain(chainId);
         if (!chain) throw new Error('Unknown chain.');
-        _activeChainId = chainId;
-
         StepNavigator.load(chain);
         await ExecutionEngine.run(chainId);
     }
 
     // ── Navigation ────────────────────────────────────────────────────────────
-
-    /**
-     * Capture the sheet state onto the root node before any step runs.
-     * Called once by ExecutionEngine at the very start of run().
-     * Ensures stepBack from step 1 can always restore the original sheet.
-     */
-    async function captureRootSnapshot(chainId) {
-        const chain = getChain(chainId);
-        if (!chain) return;
-        const snap = await WorksheetSnapshot.capture();
-        DagStore.setNodeSnapshot(chain.rootNodeId, snap);
-        _log('info', 'Root snapshot captured.');
-    }
 
     /**
      * Advance one step: run the outgoing edge's `code`, mark it executed,
@@ -115,9 +98,8 @@ const DagRunner = (() => {
         const edge = _mainEdge(chain, outgoing);
         if (!edge) return null;
 
-        // Snapshot the sheet BEFORE running code. Scoped to the segment's
-        // sheet_context ranges for speed; falls back to full used range.
-        const snapshot = await WorksheetSnapshot.capture(edge.segment.sheet_context);
+        // Snapshot the sheet BEFORE running code (full used range).
+        const snapshot = await WorksheetSnapshot.capture();
         DagStore.setNodeSnapshot(chain.currentNodeId, snapshot);
 
         await _runCode(edge.segment.code);
@@ -174,36 +156,10 @@ const DagRunner = (() => {
         if (!path) throw new Error('No path to target node.');
 
         for (const hop of path) {
-            const desc = hop.edge.segment?.description || hop.edge.id;
             if (hop.direction === 'forward') {
-                _log('info', `▶ Navigate forward: ${desc}`);
-                const snapFwd = await WorksheetSnapshot.capture(hop.edge.segment.sheet_context);
-                DagStore.setNodeSnapshot(chain.currentNodeId, snapFwd);
-                try {
-                    await _runCode(hop.edge.segment.code);
-                } catch (err) {
-                    _log('err', `✗ Navigate forward failed (${desc}): ${err.message}`);
-                    throw err;
-                }
-                DagStore.markEdge(hop.edge.id, { executed: true, failed: false });
-                chain.currentNodeId = hop.edge.to;
-                _log('ok', `✓ ${desc}`);
+                await stepForward(chainId);
             } else {
-                _log('info', `↩ Restoring snapshot: ${desc}`);
-                const snapBack = DagStore.getNodeSnapshot(hop.edge.from);
-                if (!snapBack) {
-                    _log('err', `✗ No snapshot for node before "${desc}".`);
-                    throw new Error(`No snapshot for "${desc}".`);
-                }
-                try {
-                    await WorksheetSnapshot.restore(snapBack);
-                } catch (err) {
-                    _log('err', `✗ Snapshot restore failed (${desc}): ${err.message}`);
-                    throw err;
-                }
-                DagStore.markEdge(hop.edge.id, { executed: false, failed: false });
-                chain.currentNodeId = hop.edge.from;
-                _log('ok', `↩ Restored: ${desc}`);
+                await stepBack(chainId);
             }
         }
 
@@ -484,10 +440,8 @@ const DagRunner = (() => {
 
     return {
         prepareChain,
-        captureRootSnapshot,
         start,
         getChain,
-        getActiveChain,
         stepForward,
         stepBack,
         navigateTo,

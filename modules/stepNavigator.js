@@ -51,9 +51,7 @@ const StepNavigator = (() => {
     let _advanceResolve = null;
     let _askHistory     = [];
     let _activePanel    = null;  // 'ask' | 'edit' | 'rubric' | null
-    let _isRubricGate   = false;
-    let _isVerifyGate   = false;
-    let _gateCallback   = null;  // one-shot: called on the next → click
+    let _gateCallback   = null;  // one-shot: fires on the next → click
 
     // ── Init ──────────────────────────────────────────────────────────────────
 
@@ -80,12 +78,9 @@ const StepNavigator = (() => {
         _advanceResolve = null;
         _askHistory     = [];
         _activePanel    = null;
-        _isRubricGate   = false;
-        _isVerifyGate   = false;
         _gateCallback   = null;
         _closePanel();
-        _renderCard();
-        _renderGraph();
+        _render();
     }
 
     // ── ExecutionEngine interface ─────────────────────────────────────────────
@@ -94,8 +89,7 @@ const StepNavigator = (() => {
         _isRunning = true;
         _overlay.classList.add('running', 'visible');
         _chatPanel.classList.add('nav-active');
-        _renderCard();
-        _renderGraph();
+        _render();
     }
 
     async function markFailed(errorMsg) {
@@ -109,8 +103,7 @@ const StepNavigator = (() => {
         if (seg) seg._errorMsg = errorMsg;
 
         const promise = new Promise(resolve => { _advanceResolve = resolve; });
-        _renderCard();
-        _renderGraph();
+        _render();
         return promise;
     }
 
@@ -122,8 +115,7 @@ const StepNavigator = (() => {
         _askHistory = [];
 
         const promise = new Promise(resolve => { _advanceResolve = resolve; });
-        _renderCard();
-        _renderGraph();
+        _render();
         await _focusRanges();
         return promise;
     }
@@ -134,11 +126,10 @@ const StepNavigator = (() => {
         _closePanel();
     }
 
-    /** Re-render after DagRunner mutates chain state. */
-    function refreshGraph() {
-        _renderCard();
-        _renderGraph();
-    }
+    function _render() { _renderCard(); _renderGraph(); }
+
+    /** Re-render after DagRunner mutates chain state (public). */
+    function refreshGraph() { _render(); }
 
     // ── Navigation ────────────────────────────────────────────────────────────
 
@@ -165,8 +156,14 @@ const StepNavigator = (() => {
      * @param {'rubric'|'verify'} _mode  (informational, unused internally)
      * @param {Function}          cb     called when → is clicked
      */
-    function setGateMode(_mode, cb) {
+    function setGateMode(cb) {
         _gateCallback = cb;
+    }
+
+    /** Called by RubricManager after a gate resolves to clean overlay state. */
+    function dismissGate(type) {
+        _overlay.classList.remove(`${type}-gate`, 'visible');
+        _chatPanel.classList.remove('nav-active');
     }
 
     function _onPrev() {
@@ -174,13 +171,11 @@ const StepNavigator = (() => {
         DagRunner.stepBack(_chainId)
             .then(() => {
                 _overlay.classList.remove('failed');
-                _renderCard();
-                _renderGraph();
+                _render();
             })
             .catch(err => {
                 ExecutionEngine.log('err', `✗ Step back failed: ${err.message}`);
-                _renderCard();
-                _renderGraph();
+                _render();
             });
     }
 
@@ -189,13 +184,11 @@ const StepNavigator = (() => {
         try {
             await DagRunner.navigateTo(_chainId, nodeId);
             _overlay.classList.remove('failed');
-            _renderCard();
-            _renderGraph();
+            _render();
             await _focusRanges();
         } catch (err) {
             ExecutionEngine.log('err', `✗ Navigate failed: ${err.message}`);
-            _renderCard();
-            _renderGraph();
+            _render();
         }
     }
 
@@ -220,7 +213,6 @@ const StepNavigator = (() => {
 
         // Badge: "Running step N…" / "Step N of M applied" / "Ready — N steps"
         if (_isRunning) {
-            const runSeg = next || seg;
             _badge.textContent = `Applying step ${idx + 1}…`;
         } else if (atRoot) {
             _badge.textContent = `Ready — ${total} step${total !== 1 ? 's' : ''}`;
@@ -493,8 +485,7 @@ const StepNavigator = (() => {
                 ExecutionEngine.log('err', `✗ Edit exec failed: ${execErr.message}`);
             }
 
-            _renderCard();
-            _renderGraph();
+            _render();
         } catch (err) {
             _editSend.textContent = '⚠ Error';
             ExecutionEngine.log('err', `✗ Edit LLM error: ${err.message}`);
@@ -564,5 +555,5 @@ const StepNavigator = (() => {
         return Math.max(0, chain.nodeIds.indexOf(chain.currentNodeId));
     }
 
-    return { init, load, markRunning, markFailed, waitForNext, dismiss, refreshGraph, setGateMode };
+    return { init, load, markRunning, markFailed, waitForNext, dismiss, refreshGraph, setGateMode, dismissGate };
 })();
