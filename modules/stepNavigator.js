@@ -478,17 +478,13 @@ const StepNavigator = (() => {
             _editFeedback.value = '';
 
             DagRunner.applyEdit(_chainId, fromIdx, chain.taskLabel, newChain);
+            _editSend.textContent = '✓ Ready';
 
-            // Execute the edited step immediately via DagRunner
-            try {
-                await DagRunner.stepForward(_chainId);
-                _editSend.textContent = '✓ Applied';
-            } catch (execErr) {
-                _editSend.textContent = '⚠ Run failed';
-                ExecutionEngine.log('err', `✗ Edit exec failed: ${execErr.message}`);
-            }
-
+            // Don't call stepForward here — ExecutionEngine is already running
+            // and owns the step loop. Resolving _advanceResolve lets it advance
+            // naturally from the new fork position, running the edited step next.
             _render();
+            _resolve();
         } catch (err) {
             _editSend.textContent = '⚠ Error';
             ExecutionEngine.log('err', `✗ Edit LLM error: ${err.message}`);
