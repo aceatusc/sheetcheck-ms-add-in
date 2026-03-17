@@ -209,58 +209,74 @@ const StepNavigator = (() => {
         const chain = DagRunner.getChain(_chainId);
         if (!chain) return;
 
-        const seg   = _currentSegment(chain);
+        const seg   = _currentSegment(chain);   // segment that PRODUCED this state
+        const next  = _nextSegment(chain);       // segment ABOUT to run (for running badge)
         const total = chain.segments.length;
-        const idx   = _currentIndex(chain);
+        const idx   = _currentIndex(chain);      // 0-based position of currentNodeId
 
-        if (!seg) return;
+        const atRoot   = DagStore.edgesTo(chain.currentNodeId).length === 0;
+        const atLeaf   = DagStore.edgesFrom(chain.currentNodeId).length === 0;
+        const isFailed = !!(seg?._errorMsg);
 
-        const isFailed = !!(seg._errorMsg);
+        // Badge: "Running step N…" / "Step N of M applied" / "Ready — N steps"
+        if (_isRunning) {
+            const runSeg = next || seg;
+            _badge.textContent = `Applying step ${idx + 1}…`;
+        } else if (atRoot) {
+            _badge.textContent = `Ready — ${total} step${total !== 1 ? 's' : ''}`;
+        } else if (isFailed) {
+            _badge.textContent = `✗ Step ${idx} of ${total} — failed`;
+        } else {
+            _badge.textContent = `Step ${idx} of ${total} applied`;
+        }
 
-        _badge.textContent = _isRunning
-            ? `Running…`
-            : isFailed
-                ? `✗ Step ${idx + 1} of ${total} — failed`
-                : `Step ${idx + 1} of ${total}`;
-
+        // Ranges, description, explanation from current node's incoming segment
+        const displaySeg = _isRunning ? (next || seg) : seg;
         _ranges.innerHTML = '';
-        (seg.sheet_context || []).forEach(addr => {
+        (displaySeg?.sheet_context || []).forEach(addr => {
             const c = document.createElement('span');
             c.className   = 'range-chip';
             c.textContent = addr;
             _ranges.appendChild(c);
         });
 
-        _desc.textContent = seg.description || '';
-        if (isFailed && seg._errorMsg) {
-            _expl.innerHTML = `<span style="opacity:0.75">${seg.explanation || ''}</span>`
-                + `<div class="step-error-msg">⚠ ${seg._errorMsg}</div>`;
-        } else {
-            _expl.textContent = seg.explanation || '';
+        if (atRoot && !_isRunning) {
+            _desc.textContent = 'Original sheet — no changes applied yet.';
+            _expl.textContent = next ? `Next: ${next.description}` : '';
+        } else if (displaySeg) {
+            _desc.textContent = displaySeg.description || '';
+            if (isFailed && displaySeg._errorMsg) {
+                _expl.innerHTML = `<span style="opacity:0.75">${displaySeg.explanation || ''}</span>`
+                    + `<div class="step-error-msg">⚠ ${displaySeg._errorMsg}</div>`;
+            } else {
+                _expl.textContent = displaySeg.explanation || '';
+            }
         }
-        _counter.textContent = `${idx + 1}/${total}`;
 
+        // Counter: shows which node we're on. Root = 0/N (before step 1).
+        _counter.textContent = `${idx}/${total}`;
+
+        // Q&A from the incoming segment (what was just applied)
         _qaList.innerHTML = '';
-        (seg.qa_pairs || []).forEach(pair => {
+        (seg?.qa_pairs || []).forEach(pair => {
             const item = document.createElement('details');
             item.className = 'qa-item';
             item.innerHTML = `<summary class="qa-q">${pair.q}</summary><p class="qa-a">${pair.a}</p>`;
             _qaList.appendChild(item);
         });
 
-        const atRoot = DagStore.edgesTo(chain.currentNodeId).length === 0;
         _btnPrev.disabled = _isRunning || atRoot;
 
         if (_isRunning) {
             _btnNext.textContent = '…';
             _btnNext.disabled    = true;
         } else {
-            _btnNext.textContent = idx >= total - 1 ? '✓' : '→';
+            _btnNext.textContent = atLeaf ? '✓' : '→';
             _btnNext.disabled    = !_advanceResolve && !isFailed;
         }
 
-        _btnEdit.disabled = _isRunning;
-        _btnAsk.disabled  = _isRunning;
+        _btnEdit.disabled = _isRunning || atRoot;
+        _btnAsk.disabled  = _isRunning || atRoot;
     }
 
     // ── Graph render — git-style SVG ──────────────────────────────────────────
@@ -456,7 +472,7 @@ const StepNavigator = (() => {
 
         const chain   = DagRunner.getChain(_chainId);
         const fromIdx = _currentIndex(chain);
-        const seg     = _currentSegment(chain);
+        const seg     = _nextSegment(chain);    // edit the upcoming step
 
         _editSend.disabled    = true;
         _editSend.textContent = '…';
@@ -494,7 +510,8 @@ const StepNavigator = (() => {
 
     async function _focusRanges() {
         const chain    = DagRunner.getChain(_chainId);
-        const seg      = _currentSegment(chain);
+        // Focus the ranges of the segment just applied (incoming edge)
+        const seg      = _currentSegment(chain) || _nextSegment(chain);
         const contexts = seg?.sheet_context;
         if (!contexts?.length) return;
         try {
@@ -511,22 +528,34 @@ const StepNavigator = (() => {
     // ── Helpers ───────────────────────────────────────────────────────────────
 
     /**
-     * The "active" segment to display is the one on the outgoing main-chain
-     * edge from currentNodeId. At a leaf node (end of chain) we fall back to
-     * the most recently executed incoming edge so the card stays populated.
+     * The card shows the segment of the edge that LED INTO the current node —
+     * i.e. the change that produced the sheet state the user is looking at.
+     *
+     * At the root node there is no incoming edge: return null so _renderCard
+     * can show a "ready to begin" state instead.
+     *
+     * This matches the commit model: current node = committed state,
+     * incoming edge = the change that was agreed to.
      */
     function _currentSegment(chain) {
         if (!chain) return null;
-        const outgoing   = DagStore.edgesFrom(chain.currentNodeId);
-        const mainEdgeSet = new Set(chain.edgeIds);
-
-        if (outgoing.length) {
-            return (outgoing.find(e => mainEdgeSet.has(e.id)) || outgoing[0]).segment || null;
-        }
-        // Leaf: show last executed incoming segment
         const incoming = DagStore.edgesTo(chain.currentNodeId);
+        if (!incoming.length) return null;   // root node — no step applied yet
+        // Prefer the executed incoming edge; fall back to any incoming edge
         const e = incoming.find(ed => ed.executed) || incoming[0];
         return e?.segment || null;
+    }
+
+    /**
+     * Segment for the NEXT step — the outgoing edge from currentNodeId.
+     * Used by markRunning to show what is about to be applied.
+     */
+    function _nextSegment(chain) {
+        if (!chain) return null;
+        const outgoing   = DagStore.edgesFrom(chain.currentNodeId);
+        const mainEdgeSet = new Set(chain.edgeIds);
+        if (!outgoing.length) return null;
+        return (outgoing.find(e => mainEdgeSet.has(e.id)) || outgoing[0]).segment || null;
     }
 
     /** 0-based index of currentNodeId in the chain's nodeIds list. */

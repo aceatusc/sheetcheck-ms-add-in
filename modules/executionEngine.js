@@ -23,6 +23,10 @@ const ExecutionEngine = (() => {
         _progressStrip.classList.add('visible');
         _log('info', `Starting execution: ${chain.segments.length} segment(s)`);
 
+        // Capture the root node snapshot (sheet state before ANY step runs).
+        // This is essential so stepBack from step 1 can restore the original sheet.
+        await DagRunner.captureRootSnapshot(chainId);
+
         let stepCount = 0;
         const total   = chain.segments.length;
 

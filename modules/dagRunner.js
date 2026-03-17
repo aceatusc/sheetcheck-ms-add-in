@@ -87,6 +87,19 @@ const DagRunner = (() => {
     // ── Navigation ────────────────────────────────────────────────────────────
 
     /**
+     * Capture the sheet state onto the root node before any step runs.
+     * Called once by ExecutionEngine at the very start of run().
+     * Ensures stepBack from step 1 can always restore the original sheet.
+     */
+    async function captureRootSnapshot(chainId) {
+        const chain = getChain(chainId);
+        if (!chain) return;
+        const snap = await WorksheetSnapshot.capture();
+        DagStore.setNodeSnapshot(chain.rootNodeId, snap);
+        _log('info', 'Root snapshot captured.');
+    }
+
+    /**
      * Advance one step: run the outgoing edge's `code`, mark it executed,
      * move currentNodeId forward.
      * Returns { edge, segment } or null if already at a leaf.
@@ -110,10 +123,6 @@ const DagRunner = (() => {
         await _runCode(edge.segment.code);
         DagStore.markEdge(edge.id, { executed: true, failed: false });
         chain.currentNodeId = edge.to;
-        // Capture the post-step state onto the destination node so it
-        // can be used as the "before" snapshot for the *next* forward step.
-        const snapAfter = await WorksheetSnapshot.capture(edge.segment.sheet_context);
-        DagStore.setNodeSnapshot(chain.currentNodeId, snapAfter);
         return { edge, segment: edge.segment };
     }
 
@@ -178,8 +187,6 @@ const DagRunner = (() => {
                 }
                 DagStore.markEdge(hop.edge.id, { executed: true, failed: false });
                 chain.currentNodeId = hop.edge.to;
-                const snapFwdAfter = await WorksheetSnapshot.capture(hop.edge.segment.sheet_context);
-                DagStore.setNodeSnapshot(chain.currentNodeId, snapFwdAfter);
                 _log('ok', `✓ ${desc}`);
             } else {
                 _log('info', `↩ Restoring snapshot: ${desc}`);
@@ -445,13 +452,18 @@ const DagRunner = (() => {
         return candidates.find(e => mainSet.has(e.id)) || candidates[0] || null;
     }
 
-    /** Set of all nodeIds that have at least one executed incoming edge. */
+    /**
+     * Set of nodeIds whose state is "committed" — the user has seen and agreed
+     * to the sheet at this node.
+     * Root is always committed (it's the baseline before any agent change).
+     * Every node reached by an executed edge is also committed.
+     */
     function _visitedNodes(chain) {
         const visited = new Set();
         const dag = DagStore.getAll();
+        // Root is always committed — it's the sheet state before anything ran
+        visited.add(chain.rootNodeId);
         dag.edges.forEach(e => { if (e.executed) visited.add(e.to); });
-        // Root is always "visited" once any step has been taken
-        if (visited.size > 0) visited.add(chain.rootNodeId);
         return visited;
     }
 
@@ -472,6 +484,7 @@ const DagRunner = (() => {
 
     return {
         prepareChain,
+        captureRootSnapshot,
         start,
         getChain,
         getActiveChain,
