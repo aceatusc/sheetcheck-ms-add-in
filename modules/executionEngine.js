@@ -2,9 +2,13 @@
  * executionEngine.js
  * Runs code segments one at a time, pausing between each for the user
  * to review the change and click → in the StepNavigator overlay.
+ *
+ * Accepts optional callbacks for DAG tracking:
+ *   { onStepDone(index), onStepFailed(index) }
  */
 const ExecutionEngine = (() => {
 
+    const STORAGE_KEY = 'sheetcheck_dag';
     const _logEl         = document.getElementById('execution-log');
     const _statusDot     = document.getElementById('execution-status-dot');
     const _barFill       = document.getElementById('segment-bar-fill');
@@ -15,8 +19,9 @@ const ExecutionEngine = (() => {
     /**
      * Run segments sequentially, waiting for user confirmation after each one.
      * @param {CodeSegment[]} segments
+     * @param {{ onStepDone?: Function, onStepFailed?: Function }} [callbacks]
      */
-    async function run(segments) {
+    async function run(segments, callbacks = {}) {
         if (!segments || segments.length === 0) return;
 
         _setStatus('running');
@@ -28,6 +33,7 @@ const ExecutionEngine = (() => {
 
             _updateProgress(i, segments.length);
             _log('info', `▶ ${seg.description}`);
+            _log('info', localStorage.getItem(STORAGE_KEY))
 
             StepNavigator.markRunning(i);
 
@@ -38,11 +44,12 @@ const ExecutionEngine = (() => {
                 stepOk = true;
                 _updateProgress(i + 1, segments.length);
                 _log('ok', `✓ ${seg.description}`);
+                callbacks.onStepDone?.(i);
             } catch (err) {
                 _log('err', `✗ ${seg.description}: ${err.message}`);
                 _setStatus('error');
                 console.error('[ExecutionEngine] Segment error:', err);
-                // Show yellow card, wait for user to click → before continuing
+                callbacks.onStepFailed?.(i);
                 await StepNavigator.markFailed(i, err.message);
                 continue;
             }
@@ -58,14 +65,12 @@ const ExecutionEngine = (() => {
             _setStatus('success');
             _log('ok', 'All segments complete.');
         }
-        // Always run rubric verification at the end
         await StepNavigator.showVerifyResults();
     }
 
     // ── Private helpers ───────────────────────────────────────────────────────
 
     function _makeAsyncFn(code) {
-        // PLACEHOLDER: add input sanitization / CSP-safe alternative
         return new (Object.getPrototypeOf(async function () {}).constructor)(code);
     }
 
@@ -87,11 +92,6 @@ const ExecutionEngine = (() => {
         line.innerHTML = `<span class="log-time">${time}</span><span class="log-msg">${msg}</span>`;
         _logEl.appendChild(line);
         _logEl.scrollTop = _logEl.scrollHeight;
-    }
-
-    function _openPanel() {
-        _panel.classList.add('open');
-        document.getElementById('execution-toggle-icon').textContent = '▼';
     }
 
     return { run };

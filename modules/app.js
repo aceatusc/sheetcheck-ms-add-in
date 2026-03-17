@@ -12,6 +12,7 @@
 
     StepNavigator.init();
     ChatManager.init();
+    DagStore.init();
 
     console.log('[App] Ready.');
 })();

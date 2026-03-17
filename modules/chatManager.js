@@ -3,11 +3,11 @@
  */
 const ChatManager = (() => {
 
-    const _feed       = document.getElementById('message-feed');
-    const _input      = document.getElementById('chat-input');
-    const _sendBtn    = document.getElementById('send-button');
-    const _typing     = document.getElementById('typing-indicator');
-    const _typingLbl  = document.getElementById('typing-label');
+    const _feed      = document.getElementById('message-feed');
+    const _input     = document.getElementById('chat-input');
+    const _sendBtn   = document.getElementById('send-button');
+    const _typing    = document.getElementById('typing-indicator');
+    const _typingLbl = document.getElementById('typing-label');
 
     let _isBusy = false;
 
@@ -21,6 +21,7 @@ const ChatManager = (() => {
             if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); if (!_sendBtn.disabled) _handleSend(); }
         });
         _sendBtn.addEventListener('click', _handleSend);
+
         document.getElementById('execution-header')?.addEventListener('click', () => {
             const panel = document.getElementById('execution-panel');
             const icon  = document.getElementById('execution-toggle-icon');
@@ -37,7 +38,7 @@ const ChatManager = (() => {
         _clearInput();
 
         try {
-            const wsCtx = await WorksheetContext.gather(['selection','sheet']);
+            const wsCtx = await WorksheetContext.gather(['selection', 'sheet']);
 
             // 1. Scaffold rubric
             _showTyping(true, 'Creating requirements');
@@ -52,14 +53,14 @@ const ChatManager = (() => {
             const segments = await LLMClient.generateCode(text, wsCtx, rubric);
             _showTyping(false);
 
-            // 3. Load segments
+            // 3. Load segments into navigator
             StepNavigator.loadSegments(segments);
 
-            // 4. Show rubric gate
+            // 4. Show rubric gate — user reviews requirements, clicks Start
             await StepNavigator.showRubricGate();
 
             // 5. Execute
-            _appendMessage('agent', `Applying ${segments.length} step(s) to your sheet…`);
+            _appendMessage('agent', `Applying ${segments.length} step(s) to your sheet...`);
             await ExecutionEngine.run(segments);
 
         } catch(err) {

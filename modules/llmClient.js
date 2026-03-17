@@ -34,10 +34,17 @@ const LLMClient = (() => {
         return _post('/ask', { message, context: wsContext, step, history });
     }
 
-    /** Edit a specific segment. */
-    async function edit(message, wsContext, segment, preferredAltId = null) {
-        const data = await _post('/edit', { message, context: wsContext, segment, preferred_alt_id: preferredAltId });
-        return data.segment;
+    /** Edit a segment and regenerate the rest of the chain from that point.
+     *  Returns an array: [editedSeg, ...regeneratedRemainder] */
+    async function edit(message, wsContext, segment, remainingSegments = []) {
+        const data = await _post('/edit', {
+            message,
+            context: wsContext,
+            segment,
+            remaining_segments: remainingSegments,
+        });
+        // Normalise: server returns { segments: [...] }
+        return data.segments;
     }
 
     /** Scaffold an initial rubric for the task. */
