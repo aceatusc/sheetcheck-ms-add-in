@@ -73,6 +73,7 @@ const ChatManager = (() => {
             // Start position is the root node of this chain
             if (!_currentNodeId) _currentNodeId = rootNodeId;
             _currentEdgeIds = edgeIds;
+            StepNavigator.setCurrentDagNode(_currentNodeId);
 
             // 4. Load segments + show rubric gate
             StepNavigator.loadSegments(segments);
@@ -85,7 +86,8 @@ const ChatManager = (() => {
                     const edgeId = _currentEdgeIds[index];
                     if (edgeId) {
                         DagStore.markEdgeExecuted(edgeId, false);
-                        _currentNodeId = nodeIds[index + 1]; // advance current state
+                        _currentNodeId = nodeIds[index + 1];
+                        StepNavigator.setCurrentDagNode(_currentNodeId);
                         JourneyPanel.refresh(_currentNodeId);
                     }
                 },

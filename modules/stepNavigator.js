@@ -336,13 +336,18 @@ const StepNavigator = (() => {
         await _focusRanges(targetIndex);
     }
 
-    // Navigate to a node by segment id (from graph click)
+    // Navigate to a node by segment id (legacy — superseded by _navigateToNode)
     async function _navigateById(segId) {
         const idx = _segments.findIndex(s => s.id === segId);
         if (idx < 0) return;
-        // Allow visiting completed or failed steps
         if (idx > _completedUpTo && !_failedIndices.has(idx)) return;
         await _navigate(idx);
+    }
+
+    /** Called by ChatManager to keep the in-navigator DAG in sync. */
+    function setCurrentDagNode(nodeId) {
+        _dagCurrentNodeId = nodeId;
+        _renderGraph();
     }
 
     // ── Panels ────────────────────────────────────────────────────────────────
@@ -855,103 +860,224 @@ const StepNavigator = (() => {
         sel.addRange(range);
     }
 
-    // ── Dependency Graph ──────────────────────────────────────────────────────
+    // ── DAG Graph (replaces SF1.2 dependency graph) ───────────────────────────
+    //
+    // Renders the DagStore graph inside the step navigator overlay.
+    // Nodes  = worksheet states; edges = code segments.
+    // Layout: left→right by depth, branches go downward.
+    // Clicking any reached node navigates to it silently (undo/forward traversal).
 
     function _renderGraph() {
         if (!_graphEl) return;
         _graphEl.innerHTML = '';
-        if (_segments.length === 0) return;
+
+        // Graceful fallback when DagStore isn't loaded yet
+        if (typeof DagStore === 'undefined') return;
+
+        const { nodes, edges } = DagStore.getAll();
+        if (nodes.length === 0) return;
 
         const SVG_NS = 'http://www.w3.org/2000/svg';
-        const NODE_R = 7;
-        const GAP    = 34;
-        const H      = 36;
-        const total  = _segments.length;
-        const W      = Math.max(GAP * (total - 1) + NODE_R * 2 + 20, 100);
+        const NODE_R = 6;
+        const COL_W  = 30;   // tight horizontal spacing for small overlay
+        const ROW_H  = 22;   // vertical spacing for branches
+        const PAD_X  = 10;
+        const PAD_Y  = 10;
+
+        // ── Layout ─────────────────────────────────────────────────────────────
+        const fwd = {}, bwd = {};
+        edges.forEach(e => {
+            (fwd[e.from] = fwd[e.from] || []).push(e.to);
+            (bwd[e.to]   = bwd[e.to]   || []).push(e.from);
+        });
+
+        const allToIds = new Set(edges.map(e => e.to));
+        const roots    = nodes.filter(n => !allToIds.has(n.id));
+        const pos      = {};
+        let nextRow    = 0;
+
+        function bfsFrom(rootId, startRow) {
+            const queue = [{ id: rootId, col: 0, row: startRow }];
+            const seen  = new Set();
+            while (queue.length) {
+                const { id, col, row } = queue.shift();
+                if (seen.has(id)) continue;
+                seen.add(id);
+                if (!pos[id]) pos[id] = { col, row };
+                (fwd[id] || []).forEach((childId, ci) => {
+                    if (seen.has(childId)) return;
+                    const childRow = ci === 0 ? row : nextRow++;
+                    queue.push({ id: childId, col: col + 1, row: childRow });
+                });
+            }
+        }
+        roots.forEach(r => { bfsFrom(r.id, nextRow); nextRow++; });
+        nodes.forEach(n => { if (!pos[n.id]) pos[n.id] = { col: 0, row: nextRow++ }; });
+
+        const maxCol = Math.max(...Object.values(pos).map(p => p.col));
+        const maxRow = Math.max(...Object.values(pos).map(p => p.row));
+        const svgW   = PAD_X * 2 + (maxCol + 1) * COL_W;
+        const svgH   = PAD_Y * 2 + (maxRow + 1) * ROW_H;
 
         const svg = document.createElementNS(SVG_NS, 'svg');
-        svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
-        svg.setAttribute('width', '100%');
-        svg.setAttribute('height', H);
+        svg.setAttribute('viewBox', `0 0 ${svgW} ${svgH}`);
+        svg.setAttribute('width', svgW);
+        svg.setAttribute('height', svgH);
+        svg.style.overflow = 'visible';
 
-        // Node x positions
-        const cx = i => NODE_R + 10 + i * GAP;
-        const cy = H / 2;
+        const cx = id => PAD_X + pos[id].col * COL_W;
+        const cy = id => PAD_Y + pos[id].row * ROW_H;
 
-        // Draw predecessor edges
-        _segments.forEach((seg, i) => {
-            (seg.predecessors || []).forEach(predId => {
-                const pi = _segments.findIndex(s => s.id === predId);
-                if (pi < 0) return;
-                const line = document.createElementNS(SVG_NS, 'line');
-                line.setAttribute('x1', cx(pi)); line.setAttribute('y1', cy);
-                line.setAttribute('x2', cx(i));  line.setAttribute('y2', cy);
-                const done = pi <= _completedUpTo && i <= _completedUpTo;
-                line.setAttribute('stroke', done ? 'rgba(79,142,247,0.7)' : 'rgba(79,142,247,0.2)');
-                line.setAttribute('stroke-width', '2');
-                line.setAttribute('stroke-dasharray', done ? 'none' : '4,3');
-                svg.appendChild(line);
-            });
+        // ── Edges ───────────────────────────────────────────────────────────────
+        edges.forEach(e => {
+            const x1 = cx(e.from), y1 = cy(e.from);
+            const x2 = cx(e.to),   y2 = cy(e.to);
+
+            let d;
+            if (y1 === y2) {
+                d = `M${x1} ${y1} L${x2} ${y2}`;
+            } else {
+                const mx = (x1 + x2) / 2;
+                d = `M${x1} ${y1} C${mx} ${y1} ${mx} ${y2} ${x2} ${y2}`;
+            }
+
+            const path = document.createElementNS(SVG_NS, 'path');
+            path.setAttribute('d', d);
+            path.setAttribute('fill', 'none');
+            path.setAttribute('stroke',
+                e.failed   ? 'rgba(245,100,60,0.6)' :
+                e.executed ? 'rgba(79,142,247,0.7)'  :
+                             'rgba(79,142,247,0.2)');
+            path.setAttribute('stroke-width', e.executed ? '1.5' : '1');
+            path.setAttribute('stroke-dasharray', e.executed ? 'none' : '3 2');
+
+            const title = document.createElementNS(SVG_NS, 'title');
+            title.textContent = e.segment?.description || '';
+            path.appendChild(title);
+            svg.appendChild(path);
         });
 
-        // Draw alternative edges (dotted, low opacity)
-        _segments.forEach((seg, i) => {
-            (seg.alternatives || []).slice(1).forEach((alt, ai) => {
-                if (i > 0) {
-                    const line = document.createElementNS(SVG_NS, 'line');
-                    line.setAttribute('x1', cx(i-1)); line.setAttribute('y1', cy - 8);
-                    line.setAttribute('x2', cx(i));   line.setAttribute('y2', cy - 8);
-                    line.setAttribute('stroke', 'rgba(245,166,35,0.35)');
-                    line.setAttribute('stroke-width', '1.5');
-                    line.setAttribute('stroke-dasharray', '3,3');
-                    svg.appendChild(line);
-                }
-            });
-        });
+        // ── Nodes ───────────────────────────────────────────────────────────────
+        nodes.forEach(node => {
+            const x          = cx(node.id);
+            const y          = cy(node.id);
+            const isCurrent  = node.id === _dagCurrentNodeId;
+            const inEdge     = edges.find(e => e.to === node.id);
+            const isExecuted = node.isRoot || (inEdge && inEdge.executed);
+            const isFailed   = inEdge && inEdge.failed;
+            const isReachable = isExecuted; // can navigate to executed nodes
 
-        // Draw nodes
-        _segments.forEach((seg, i) => {
             const g = document.createElementNS(SVG_NS, 'g');
-            g.style.cursor = 'pointer';
-            g.addEventListener('click', () => _navigateById(seg.id));
+            g.style.cursor = isReachable ? 'pointer' : 'default';
+
+            // Current node halo
+            if (isCurrent) {
+                const halo = document.createElementNS(SVG_NS, 'circle');
+                halo.setAttribute('cx', x); halo.setAttribute('cy', y);
+                halo.setAttribute('r', NODE_R + 3);
+                halo.setAttribute('fill', 'none');
+                halo.setAttribute('stroke', '#fff');
+                halo.setAttribute('stroke-width', '1.5');
+                halo.setAttribute('opacity', '0.5');
+                g.appendChild(halo);
+            }
+
+            // Running pulse on current node during execution
+            if (isCurrent && _isRunning) {
+                const pulse = document.createElementNS(SVG_NS, 'circle');
+                pulse.setAttribute('cx', x); pulse.setAttribute('cy', y);
+                pulse.setAttribute('r', NODE_R);
+                pulse.setAttribute('fill', 'rgba(79,142,247,0.3)');
+                pulse.setAttribute('stroke', 'none');
+                const anim = document.createElementNS(SVG_NS, 'animate');
+                anim.setAttribute('attributeName', 'r');
+                anim.setAttribute('values', `${NODE_R};${NODE_R + 5};${NODE_R}`);
+                anim.setAttribute('dur', '1.2s');
+                anim.setAttribute('repeatCount', 'indefinite');
+                pulse.appendChild(anim);
+                g.appendChild(pulse);
+            }
 
             const circle = document.createElementNS(SVG_NS, 'circle');
-            circle.setAttribute('cx', cx(i));
-            circle.setAttribute('cy', cy);
-            circle.setAttribute('r', i === _currentIndex ? NODE_R + 2 : NODE_R);
+            circle.setAttribute('cx', x); circle.setAttribute('cy', y);
+            circle.setAttribute('r', NODE_R);
 
-            let fill = 'rgba(79,142,247,0.15)';
-            let stroke = 'rgba(79,142,247,0.4)';
-            if (_failedIndices.has(i))   { fill = 'rgba(245,100,60,0.8)'; stroke = '#f5643c'; }
-            else if (i < _completedUpTo) { fill = 'rgba(62,207,142,0.7)'; stroke = '#3ecf8e'; }
-            else if (i === _completedUpTo) { fill = '#3ecf8e'; stroke = '#3ecf8e'; }
-            else if (i > _completedUpTo) { fill = 'rgba(79,142,247,0.1)'; stroke = 'rgba(79,142,247,0.25)'; }
-            if (i === _currentIndex) { stroke = '#fff'; }
+            let fill, stroke;
+            if (isFailed)        { fill = 'rgba(245,100,60,0.85)'; stroke = '#f5643c'; }
+            else if (isCurrent)  { fill = '#4f8ef7';               stroke = '#fff'; }
+            else if (isExecuted) { fill = 'rgba(62,207,142,0.7)';  stroke = '#3ecf8e'; }
+            else                 { fill = 'rgba(79,142,247,0.08)'; stroke = 'rgba(79,142,247,0.25)'; }
 
             circle.setAttribute('fill', fill);
             circle.setAttribute('stroke', stroke);
-            circle.setAttribute('stroke-width', i === _currentIndex ? '2.5' : '1.5');
+            circle.setAttribute('stroke-width', isCurrent ? '2' : '1.5');
+            g.appendChild(circle);
 
-            // Running pulse
-            if (i === _currentIndex && _isRunning) {
-                const anim = document.createElementNS(SVG_NS, 'animate');
-                anim.setAttribute('attributeName', 'r');
-                anim.setAttribute('values', `${NODE_R};${NODE_R+4};${NODE_R}`);
-                anim.setAttribute('dur', '1s');
-                anim.setAttribute('repeatCount', 'indefinite');
-                circle.appendChild(anim);
+            // Tooltip
+            const title = document.createElementNS(SVG_NS, 'title');
+            title.textContent = (node.isRoot ? '📌 Start' : node.label) +
+                (isCurrent ? ' (current)' : '') +
+                (!isReachable ? ' — not yet reached' : '');
+            g.appendChild(title);
+
+            // Click to navigate
+            if (isReachable && !isCurrent) {
+                g.addEventListener('click', () => _navigateToNode(node.id));
             }
 
-            const title = document.createElementNS(SVG_NS, 'title');
-            title.textContent = `${i+1}. ${seg.description}`;
-
-            g.appendChild(circle);
-            g.appendChild(title);
             svg.appendChild(g);
         });
 
         _graphEl.appendChild(svg);
+        // Make the graph area scrollable horizontally if wide
+        _graphEl.style.overflowX = 'auto';
     }
+
+    /**
+     * Navigate the worksheet to a DAG node by traversing undo/forward edges.
+     * Replaces the old _navigateById(segId).
+     */
+    async function _navigateToNode(targetNodeId) {
+        if (!_dagCurrentNodeId || targetNodeId === _dagCurrentNodeId) return;
+        const path = DagStore.findPath(_dagCurrentNodeId, targetNodeId);
+        if (!path) { console.warn('[StepNavigator] no DAG path to node', targetNodeId); return; }
+
+        _isRunning = true;
+        _render();
+        _renderGraph();
+
+        try {
+            for (const step of path) {
+                const code = step.direction === 'forward'
+                    ? step.edge.segment?.code
+                    : step.edge.segment?.undo_code;
+                if (code) {
+                    const fn = new (Object.getPrototypeOf(async function(){}).constructor)(code);
+                    await fn();
+                }
+            }
+            _dagCurrentNodeId = targetNodeId;
+
+            // Show the segment card for the incoming edge of the target node
+            const inEdge = DagStore.getIncomingEdge(targetNodeId);
+            if (inEdge?.segment) {
+                const segIdx = _segments.findIndex(s => s.id === inEdge.segment.id);
+                if (segIdx >= 0) {
+                    _currentIndex = segIdx;
+                }
+            }
+        } catch(err) {
+            console.error('[StepNavigator] DAG navigation error:', err);
+        }
+
+        _isRunning = false;
+        _render();
+        _renderGraph();
+    }
+
+    // Keep a local mirror of which DAG node the sheet is currently at.
+    // ChatManager sets this via setCurrentDagNode().
+    let _dagCurrentNodeId = null;
 
     // ── Render card ───────────────────────────────────────────────────────────
 
@@ -1035,5 +1161,5 @@ const StepNavigator = (() => {
         }
     }
 
-    return { init, loadSegments, setRubric, showRubricGate, showVerifyResults, markRunning, markFailed, waitForNext, dismiss };
+    return { init, loadSegments, setRubric, showRubricGate, showVerifyResults, markRunning, markFailed, waitForNext, dismiss, setCurrentDagNode };
 })();
