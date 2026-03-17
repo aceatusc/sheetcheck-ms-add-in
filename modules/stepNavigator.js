@@ -405,22 +405,13 @@ const StepNavigator = (() => {
     async function _onEditSend() {
         const msg            = _editFeedback.value.trim();
         const seg            = _segments[_currentIndex];
-        const remaining      = _segments.slice(_currentIndex + 1);  // tail after edit point
         _editSend.disabled   = true;
         _editSend.textContent = '…';
-        // TODO: _editSend should animate to show the waiting step
         try {
             const wsCtx  = await WorksheetContext.gather(['sheet']);
-            // TODO: should not get remaining; it should generate the new chain
-            // /edit now returns an array: the edited step + regenerated remainder
-            const newChain = await LLMClient.edit(msg, wsCtx, seg, remaining);
+            // /edit returns the edited step + a freshly-generated complete remaining path
+            const newChain = await LLMClient.edit(msg, wsCtx, seg);
             _editFeedback.value = '';
-
-            // Save the old tail as a visual branch before replacing it
-            // TODO: remove it; not needed when rendering is happening from dagRunner
-            if (remaining.length > 0) {
-                _branches.push({ fromIndex: _currentIndex, segments: remaining });
-            }
 
             // Update DAG and splice new chain into _segments from current index onward
             if (_dagMeta?.chainId) {
