@@ -71,6 +71,23 @@ const DagStore = (() => {
         if (e) { e.executed = executed; e.failed = failed; }
     }
 
+    /**
+     * Attach a worksheet snapshot to a node (stored on the node object itself).
+     * Called by DagRunner before each stepForward so the node records the
+     * worksheet state that existed when the user was sitting on it.
+     */
+    function setNodeSnapshot(nodeId, snapshot) {
+        _ensure();
+        const n = _dag.nodes.find(n => n.id === nodeId);
+        if (n) n.snapshot = snapshot;
+    }
+
+    function getNodeSnapshot(nodeId) {
+        _ensure();
+        const n = _dag.nodes.find(n => n.id === nodeId);
+        return n?.snapshot || null;
+    }
+
     // ── Read ──────────────────────────────────────────────────────────────────
 
     function getEdge(id)  { _ensure(); return _dag.edges.find(e => e.id === id) || null; }
@@ -84,5 +101,5 @@ const DagStore = (() => {
 
     function clear() { _ensure(); _dag.nodes.length = 0; _dag.edges.length = 0; }
 
-    return { init, addChain, markEdge, getEdge, getNode, getAll, edgesFrom, edgesTo, clear };
+    return { init, addChain, markEdge, setNodeSnapshot, getNodeSnapshot, getEdge, getNode, getAll, edgesFrom, edgesTo, clear };
 })();
