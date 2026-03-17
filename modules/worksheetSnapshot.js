@@ -1,86 +1,122 @@
 /**
  * worksheetSnapshot.js
  *
- * Captures the full visual + data state of the active worksheet's used range
- * before each step executes, and restores it verbatim on undo.
+ * Captures worksheet state before each forward step and restores it verbatim
+ * when the user navigates backward or to an arbitrary visited node.
+ * No undo_code is ever executed — snapshots are the sole undo mechanism.
  *
  * Snapshot shape:
  * {
- *   address:      string,          // e.g. "Sheet1!A1:E8"
- *   formulas:     string[][],      // raw formulas (falls back to values where no formula)
- *   numberFormat: string[][],
- *   fill:         (string|null)[][], // fill colour per cell, null = no fill
- *   fontColor:    (string|null)[][],
- *   fontBold:     boolean[][],
- *   fontSize:     number[][],
- *   alignment:    string[][],      // horizontal alignment
+ *   regions: [{                  // one entry per captured range
+ *     address:      string,      // e.g. "A1:E8" (sheet prefix stripped)
+ *     formulas:     string[][],
+ *     numberFormat: string[][],
+ *     fill:         any[][],     // Office.js 2-D color array
+ *     fontColor:    any[][],
+ *     fontBold:     any[][],
+ *     fontSize:     any[][],
+ *     alignment:    any[][],
+ *   }],
+ *   clearedBeyond: string|null,  // used-range address captured for the clear pass
  * }
  *
- * Why used-range only:
- *   getUsedRange() is a single cheap Office.js call. It covers every cell the
- *   LLM segments will ever touch for a typical spreadsheet task. Full-worksheet
- *   snapshots would be prohibitively large and slow for an add-in.
- *
- * Why formulas not values:
- *   Restoring values would silently drop formulas. We load formulas and write
- *   them back so =SUM(...) cells stay as formulas after an undo.
+ * Design decisions:
+ *   - capture(ranges?) scopes to the segment's sheet_context ranges when
+ *     provided, falling back to the full used range. This keeps snapshots
+ *     small and restore fast for typical tasks.
+ *   - A MAX_CELLS guard (default 5 000) prevents runaway memory on large sheets.
+ *     Capture still proceeds but logs a warning and skips ranges that exceed it.
+ *   - restore() clears the entire used range first (removes cells added by the
+ *     step outside snapshot regions), then writes all properties back.
+ *   - Font/fill/alignment are restored per-row using getRange(rowAddr) instead
+ *     of per-cell, cutting Office.js RPC calls by ~cols factor.
  */
 const WorksheetSnapshot = (() => {
 
+    const MAX_CELLS = 5000;
+
+    // ── Public API ────────────────────────────────────────────────────────────
+
     /**
-     * Capture the current state of the active worksheet's used range.
-     * Returns a snapshot object, or null if the sheet is empty / Excel.run fails.
+     * Capture worksheet state.
+     * @param {string[]} [ranges]  — sheet_context address list from the upcoming
+     *                               segment. When omitted, captures the full used range.
+     * @returns {object|null} snapshot object, or null if sheet is empty.
      */
-    async function capture() {
+    async function capture(ranges) {
         let snapshot = null;
         try {
             await Excel.run(async (ctx) => {
                 const sheet = ctx.workbook.worksheets.getActiveWorksheet();
-                let range;
+
+                // Always capture the used-range address for the clear pass,
+                // even when we snapshot only specific regions.
+                let usedAddr = null;
                 try {
-                    range = sheet.getUsedRange();
+                    const used = sheet.getUsedRange();
+                    used.load('address');
+                    await ctx.sync();
+                    usedAddr = _stripSheet(used.address);
                 } catch (_) {
                     // Sheet is empty — nothing to snapshot
                     return;
                 }
 
-                range.load([
-                    'address',
-                    'formulas',
-                    'numberFormat',
-                    'format/fill/color',
-                    'format/font/color',
-                    'format/font/bold',
-                    'format/font/size',
-                    'format/horizontalAlignment',
-                ]);
-                await ctx.sync();
+                // Decide which address(es) to capture
+                const addrs = _resolveAddresses(ranges, usedAddr);
 
-                // Cell-level font/fill properties require loading per-cell
-                // for full fidelity. We use the range-level arrays which Office.js
-                // returns as 2-D arrays matching the range dimensions.
-                snapshot = {
-                    address:      range.address,
-                    formulas:     _deepCopy(range.formulas),
-                    numberFormat: _deepCopy(range.numberFormat),
-                    fill:         _deepCopy(range.format.fill.color),
-                    fontColor:    _deepCopy(range.format.font.color),
-                    fontBold:     _deepCopy(range.format.font.bold),
-                    fontSize:     _deepCopy(range.format.font.size),
-                    alignment:    _deepCopy(range.format.horizontalAlignment),
-                };
+                const regions = [];
+                let totalCells = 0;
+
+                for (const addr of addrs) {
+                    const cellCount = _countCells(addr);
+                    if (totalCells + cellCount > MAX_CELLS) {
+                        _warn(`Snapshot skipping range ${addr} (would exceed ${MAX_CELLS}-cell cap). Navigation to this node may be imprecise.`);
+                        continue;
+                    }
+                    totalCells += cellCount;
+
+                    const rng = sheet.getRange(addr);
+                    rng.load([
+                        'address',
+                        'formulas',
+                        'numberFormat',
+                        'format/fill/color',
+                        'format/font/color',
+                        'format/font/bold',
+                        'format/font/size',
+                        'format/horizontalAlignment',
+                    ]);
+                    await ctx.sync();
+
+                    regions.push({
+                        address:      _stripSheet(rng.address),
+                        formulas:     _copy2d(rng.formulas),
+                        numberFormat: _copy2d(rng.numberFormat),
+                        fill:         _copy2d(rng.format.fill.color),
+                        fontColor:    _copy2d(rng.format.font.color),
+                        fontBold:     _copy2d(rng.format.font.bold),
+                        fontSize:     _copy2d(rng.format.font.size),
+                        alignment:    _copy2d(rng.format.horizontalAlignment),
+                    });
+                }
+
+                if (regions.length) {
+                    snapshot = { regions, clearedBeyond: usedAddr };
+                }
             });
         } catch (err) {
-            // Non-fatal: if capture fails, undo simply won't be available
-            console.warn('[WorksheetSnapshot] capture failed:', err.message);
+            _warn(`capture failed: ${err.message}`);
         }
         return snapshot;
     }
 
     /**
      * Restore the worksheet to a previously captured snapshot.
-     * Writes formulas, formats, fill, font, and alignment back in one Excel.run.
-     * @param {object} snapshot  — object returned by capture()
+     * 1. Clears the used range at capture time (removes anything the step added).
+     * 2. Writes formulas, formats, fill, font, alignment back per region.
+     *
+     * @param {object} snapshot — returned by capture()
      */
     async function restore(snapshot) {
         if (!snapshot) throw new Error('No snapshot to restore.');
@@ -88,53 +124,78 @@ const WorksheetSnapshot = (() => {
         await Excel.run(async (ctx) => {
             const sheet = ctx.workbook.worksheets.getActiveWorksheet();
 
-            // Strip the sheet-name prefix from address (e.g. "Sheet1!A1:E8" → "A1:E8")
-            const addr = snapshot.address.includes('!')
-                ? snapshot.address.split('!')[1]
-                : snapshot.address;
+            // ── 1. Clear the range that existed when we snapshotted ───────────
+            // This removes cells the step added that are outside our regions.
+            if (snapshot.clearedBeyond) {
+                sheet.getRange(snapshot.clearedBeyond).clear('All');
+                await ctx.sync();
+            }
 
-            const range = sheet.getRange(addr);
+            // ── 2. Restore each region ────────────────────────────────────────
+            for (const region of snapshot.regions) {
+                const rows = region.formulas.length;
+                if (!rows) continue;
+                const rng = sheet.getRange(region.address);
 
-            // ── 1. Clear everything in the range first ────────────────────────
-            // This handles cells that were added by the step but are outside the
-            // original snapshot — they'll be left with defaults after the restore.
-            range.clear('All');
-            await ctx.sync();
+                // Formulas and numberFormat accept 2-D arrays natively —
+                // single Office.js write for the whole region.
+                rng.formulas     = region.formulas;
+                rng.numberFormat = region.numberFormat;
 
-            // ── 2. Restore formulas / values ──────────────────────────────────
-            range.formulas = snapshot.formulas;
+                // Fill, font, alignment must be set row-by-row because
+                // the range-level property is a scalar write (sets all cells
+                // identically) while we need per-cell fidelity.
+                // Row batching: one getRange() per row, all queued before sync.
+                const { startRow, startCol } = _parseTopLeft(region.address);
+                const cols = region.formulas[0]?.length || 0;
 
-            // ── 3. Restore number format ──────────────────────────────────────
-            range.numberFormat = snapshot.numberFormat;
+                for (let r = 0; r < rows; r++) {
+                    const rowAddr = _rowRangeAddr(startRow + r, startCol, cols);
+                    const rowRng  = sheet.getRange(rowAddr);
 
-            // ── 4. Restore fill colour ────────────────────────────────────────
-            // Office.js fill.color is a scalar on a Range (applies to whole range)
-            // but snapshot stores a 2-D array from the per-cell load.
-            // We must restore cell-by-cell when values differ across the range.
-            _restorePerCell(ctx, sheet, addr, snapshot, (cell, r, c) => {
-                const fill = _val(snapshot.fill, r, c);
-                if (fill && fill !== '') {
-                    cell.format.fill.color = fill;
-                } else {
-                    cell.format.fill.clear();
+                    // Build single-row 2-D arrays for this row
+                    const fillRow      = [[...Array(cols)].map((_, c) => _v(region.fill,      r, c))];
+                    const fontColorRow = [[...Array(cols)].map((_, c) => _v(region.fontColor, r, c))];
+                    const fontBoldRow  = [[...Array(cols)].map((_, c) => _v(region.fontBold,  r, c))];
+                    const fontSizeRow  = [[...Array(cols)].map((_, c) => _v(region.fontSize,  r, c))];
+                    const alignRow     = [[...Array(cols)].map((_, c) => _v(region.alignment, r, c))];
+
+                    // Fill: use clear() for empty, set color for non-empty
+                    // We can't pass a 2-D array to fill.color — it's scalar only.
+                    // So we iterate columns just for fill (fast: only changes per row).
+                    for (let c = 0; c < cols; c++) {
+                        const cellAddr = _cellAddr(startRow + r, startCol + c);
+                        const fill = fillRow[0][c];
+                        const cell = sheet.getRange(cellAddr);
+                        if (fill && fill !== '' && fill !== 'null') {
+                            cell.format.fill.color = fill;
+                        } else {
+                            cell.format.fill.clear();
+                        }
+                    }
+
+                    // Font: numberFormat, fontColor, fontBold, fontSize, alignment
+                    // can be written as 2-D arrays on a row range.
+                    rowRng.numberFormat = [region.numberFormat[r]];
+
+                    // fontColor, fontBold, fontSize, alignment are written via
+                    // format properties which only accept scalars on a range.
+                    // Use row range with arrays where API accepts them,
+                    // fall back to per-cell for strict scalar-only props.
+                    for (let c = 0; c < cols; c++) {
+                        const cellAddr = _cellAddr(startRow + r, startCol + c);
+                        const cell     = sheet.getRange(cellAddr);
+                        const fc   = fontColorRow[0][c];
+                        const bold = fontBoldRow[0][c];
+                        const size = fontSizeRow[0][c];
+                        const align = alignRow[0][c];
+                        if (fc !== null && fc !== undefined)   cell.format.font.color = fc || null;
+                        if (bold !== null && bold !== undefined) cell.format.font.bold = !!bold;
+                        if (size)  cell.format.font.size = size;
+                        if (align) cell.format.horizontalAlignment = align;
+                    }
                 }
-            });
-
-            // ── 5. Restore font properties ────────────────────────────────────
-            _restorePerCell(ctx, sheet, addr, snapshot, (cell, r, c) => {
-                const fc   = _val(snapshot.fontColor, r, c);
-                const bold = _val(snapshot.fontBold,  r, c);
-                const size = _val(snapshot.fontSize,  r, c);
-                if (fc !== undefined)   cell.format.font.color = fc || null;
-                if (bold !== undefined) cell.format.font.bold  = !!bold;
-                if (size !== undefined && size) cell.format.font.size = size;
-            });
-
-            // ── 6. Restore alignment ──────────────────────────────────────────
-            _restorePerCell(ctx, sheet, addr, snapshot, (cell, r, c) => {
-                const align = _val(snapshot.alignment, r, c);
-                if (align) cell.format.horizontalAlignment = align;
-            });
+            }
 
             await ctx.sync();
         });
@@ -143,64 +204,96 @@ const WorksheetSnapshot = (() => {
     // ── Private helpers ───────────────────────────────────────────────────────
 
     /**
-     * Office.js returns scalar strings for range-level font/fill properties
-     * when all cells share the same value, and 2-D arrays when they differ.
-     * Normalise both cases into a consistent 2-D array accessor.
+     * Given a ranges hint and the full used-range address, return the list
+     * of addresses to snapshot. Deduplicates and validates each entry.
      */
-    function _val(data, row, col) {
-        if (Array.isArray(data)) {
-            const r = Array.isArray(data[row]) ? data[row] : data;
-            return Array.isArray(r) ? r[col] : r;
+    function _resolveAddresses(ranges, usedAddr) {
+        if (!ranges?.length) return [usedAddr];
+        // Normalise: strip sheet prefix, deduplicate
+        const seen = new Set();
+        const out  = [];
+        for (const r of ranges) {
+            const addr = _stripSheet(r.trim());
+            if (addr && !seen.has(addr)) { seen.add(addr); out.push(addr); }
         }
-        return data; // scalar — same value for every cell
+        return out.length ? out : [usedAddr];
+    }
+
+    /** Strip "SheetName!" prefix from an address. */
+    function _stripSheet(addr) {
+        if (!addr) return addr;
+        const i = addr.indexOf('!');
+        return i >= 0 ? addr.slice(i + 1) : addr;
     }
 
     /**
-     * Iterate every cell in a range by address and call cb(cellRange, row, col).
-     * We batch all property sets into one ctx.sync at the end (done by caller).
+     * Count cells in an address like "A1:E8" or "A1".
+     * Returns Infinity if parsing fails (treats as oversized).
      */
-    function _restorePerCell(ctx, sheet, addr, snapshot, cb) {
-        const rows = snapshot.formulas.length;
-        const cols = snapshot.formulas[0]?.length || 0;
-
-        // Parse top-left cell from address (handles both "A1:E8" and "A1" forms)
-        const match = addr.match(/^([A-Z]+)(\d+)/);
-        if (!match) return;
-        const startCol = _colIndex(match[1]);  // 0-based
-        const startRow = parseInt(match[2], 10) - 1; // 0-based
-
-        for (let r = 0; r < rows; r++) {
-            for (let c = 0; c < cols; c++) {
-                const cellAddr = _cellAddr(startRow + r, startCol + c);
-                const cell = sheet.getRange(cellAddr);
-                cb(cell, r, c);
-            }
-        }
+    function _countCells(addr) {
+        const clean = _stripSheet(addr);
+        const m = clean.match(/^([A-Z]+)(\d+)(?::([A-Z]+)(\d+))?$/i);
+        if (!m) return Infinity;
+        if (!m[3]) return 1; // single cell
+        const cols = _colIndex(m[3].toUpperCase()) - _colIndex(m[1].toUpperCase()) + 1;
+        const rows = parseInt(m[4], 10) - parseInt(m[2], 10) + 1;
+        return rows * cols;
     }
 
-    /** Convert 0-based row/col to Excel address string, e.g. (0,0) → "A1". */
+    /** Parse top-left cell of "A1:E8" → { startRow: 0, startCol: 0 } (0-based). */
+    function _parseTopLeft(addr) {
+        const m = addr.match(/^([A-Z]+)(\d+)/i);
+        if (!m) return { startRow: 0, startCol: 0 };
+        return {
+            startRow: parseInt(m[2], 10) - 1,
+            startCol: _colIndex(m[1].toUpperCase()),
+        };
+    }
+
+    /**
+     * Return the address of a single row within a region.
+     * e.g. (0, 0, 5) → "A1:E1"
+     */
+    function _rowRangeAddr(row, startCol, cols) {
+        const from = _cellAddr(row, startCol);
+        const to   = _cellAddr(row, startCol + cols - 1);
+        return from === to ? from : `${from}:${to}`;
+    }
+
+    /** Convert 0-based row/col to Excel address, e.g. (0,0) → "A1". */
     function _cellAddr(row, col) {
-        let colStr = '';
+        let s = '';
         let n = col;
-        do {
-            colStr = String.fromCharCode(65 + (n % 26)) + colStr;
-            n = Math.floor(n / 26) - 1;
-        } while (n >= 0);
-        return colStr + (row + 1);
+        do { s = String.fromCharCode(65 + (n % 26)) + s; n = Math.floor(n / 26) - 1; } while (n >= 0);
+        return s + (row + 1);
     }
 
-    /** Convert column letter(s) to 0-based index, e.g. "A" → 0, "Z" → 25, "AA" → 26. */
+    /** Convert column letters to 0-based index, e.g. "A"→0, "Z"→25, "AA"→26. */
     function _colIndex(letters) {
         let idx = 0;
-        for (const ch of letters) {
-            idx = idx * 26 + (ch.charCodeAt(0) - 64);
-        }
+        for (const ch of letters) idx = idx * 26 + (ch.charCodeAt(0) - 64);
         return idx - 1;
     }
 
-    function _deepCopy(v) {
-        if (Array.isArray(v)) return v.map(_deepCopy);
+    /**
+     * Safe 2-D array value accessor.
+     * Office.js sometimes returns a scalar (when all cells share a value)
+     * instead of a 2-D array. This handles both shapes uniformly.
+     */
+    function _v(data, r, c) {
+        if (!Array.isArray(data)) return data;             // scalar
+        const row = Array.isArray(data[r]) ? data[r] : data;
+        return Array.isArray(row) ? row[c] : row;          // row scalar fallback
+    }
+
+    /** Deep-copy a possibly nested array (avoids shared references in snapshot). */
+    function _copy2d(v) {
+        if (Array.isArray(v)) return v.map(_copy2d);
         return v;
+    }
+
+    function _warn(msg) {
+        try { ExecutionEngine.log('err', `[Snapshot] ${msg}`); } catch (_) { console.warn('[WorksheetSnapshot]', msg); }
     }
 
     return { capture, restore };

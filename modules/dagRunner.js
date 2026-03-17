@@ -15,9 +15,9 @@
  * segment that runs when they advance.
  *
  *   stepForward()    — run outgoing edge `code`,    move to its `to` node
- *   stepBack()       — run incoming edge `undo_code`, move to its `from` node
- *   navigateTo(id)   — BFS shortest path, run undo_code / code silently for
- *                      each hop, land on target node
+ *   stepBack()       — restore snapshot of source node, retreat currentNodeId
+ *   navigateTo(id)   — BFS shortest path; backward hops restore snapshots,
+ *                      forward hops re-run code and refresh snapshots
  *
  * Graph render descriptor
  * ───────────────────────
@@ -102,20 +102,24 @@ const DagRunner = (() => {
         const edge = _mainEdge(chain, outgoing);
         if (!edge) return null;
 
-        // Capture worksheet state onto the current (source) node before mutating it.
-        // This snapshot is what stepBack will restore instead of running undo_code.
-        const snapshot = await WorksheetSnapshot.capture();
+        // Snapshot the sheet BEFORE running code. Scoped to the segment's
+        // sheet_context ranges for speed; falls back to full used range.
+        const snapshot = await WorksheetSnapshot.capture(edge.segment.sheet_context);
         DagStore.setNodeSnapshot(chain.currentNodeId, snapshot);
 
         await _runCode(edge.segment.code);
         DagStore.markEdge(edge.id, { executed: true, failed: false });
         chain.currentNodeId = edge.to;
+        // Capture the post-step state onto the destination node so it
+        // can be used as the "before" snapshot for the *next* forward step.
+        const snapAfter = await WorksheetSnapshot.capture(edge.segment.sheet_context);
+        DagStore.setNodeSnapshot(chain.currentNodeId, snapAfter);
         return { edge, segment: edge.segment };
     }
 
     /**
-     * Go one step back: run the incoming edge's `undo_code`, mark it un-executed,
-     * move currentNodeId backward.
+     * Restore the snapshot stored on the source node (edge.from),
+     * un-mark the edge, and retreat currentNodeId.
      * Returns { edge, segment } or null if already at root.
      */
     async function stepBack(chainId) {
@@ -129,13 +133,11 @@ const DagRunner = (() => {
         const edge = incoming.find(e => e.executed) || incoming[0];
         const desc = edge.segment?.description || edge.id;
 
-        _log('info', `↩ Undo: ${desc}`);
-        // Restore from the snapshot captured on the source node — reliable and
-        // format-safe, no undo_code execution needed.
+        _log('info', `↩ Restoring snapshot: ${desc}`);
         const snapshot = DagStore.getNodeSnapshot(edge.from);
         if (!snapshot) {
-            _log('err', `✗ Undo skipped (${desc}): no snapshot found for this node.`);
-            throw new Error(`No snapshot available to undo "${desc}".`);
+            _log('err', `✗ No snapshot for node before "${desc}". Was it ever visited?`);
+            throw new Error(`No snapshot available for "${desc}".`);
         }
         try {
             await WorksheetSnapshot.restore(snapshot);
@@ -166,7 +168,7 @@ const DagRunner = (() => {
             const desc = hop.edge.segment?.description || hop.edge.id;
             if (hop.direction === 'forward') {
                 _log('info', `▶ Navigate forward: ${desc}`);
-                const snapFwd = await WorksheetSnapshot.capture();
+                const snapFwd = await WorksheetSnapshot.capture(hop.edge.segment.sheet_context);
                 DagStore.setNodeSnapshot(chain.currentNodeId, snapFwd);
                 try {
                     await _runCode(hop.edge.segment.code);
@@ -176,23 +178,25 @@ const DagRunner = (() => {
                 }
                 DagStore.markEdge(hop.edge.id, { executed: true, failed: false });
                 chain.currentNodeId = hop.edge.to;
+                const snapFwdAfter = await WorksheetSnapshot.capture(hop.edge.segment.sheet_context);
+                DagStore.setNodeSnapshot(chain.currentNodeId, snapFwdAfter);
                 _log('ok', `✓ ${desc}`);
             } else {
-                _log('info', `↩ Navigate undo: ${desc}`);
+                _log('info', `↩ Restoring snapshot: ${desc}`);
                 const snapBack = DagStore.getNodeSnapshot(hop.edge.from);
                 if (!snapBack) {
-                    _log('err', `✗ Navigate undo skipped (${desc}): no snapshot.`);
-                    throw new Error(`No snapshot available to undo "${desc}".`);
+                    _log('err', `✗ No snapshot for node before "${desc}".`);
+                    throw new Error(`No snapshot for "${desc}".`);
                 }
                 try {
                     await WorksheetSnapshot.restore(snapBack);
                 } catch (err) {
-                    _log('err', `✗ Navigate undo failed (${desc}): ${err.message}`);
+                    _log('err', `✗ Snapshot restore failed (${desc}): ${err.message}`);
                     throw err;
                 }
                 DagStore.markEdge(hop.edge.id, { executed: false, failed: false });
                 chain.currentNodeId = hop.edge.from;
-                _log('ok', `✓ Undone: ${desc}`);
+                _log('ok', `↩ Restored: ${desc}`);
             }
         }
 
