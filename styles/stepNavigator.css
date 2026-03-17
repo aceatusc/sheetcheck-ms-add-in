@@ -163,33 +163,6 @@
     flex-direction:column; gap:7px;
     border-top:1px solid rgba(255,255,255,0.2); padding-top:8px; margin-top:4px;
 }
-.edit-section-label { font-size:10px; font-weight:700; text-transform:uppercase;
-    letter-spacing:0.08em; color:rgba(255,255,255,0.55); margin-bottom:2px; }
-.alt-row {
-    background:rgba(0,0,0,0.2); border:1px solid rgba(255,255,255,0.15);
-    border-radius:7px; padding:6px 9px; cursor:pointer; transition:background 0.15s;
-}
-.alt-row:hover   { background:rgba(255,255,255,0.12); }
-.alt-row.selected{ background:rgba(255,255,255,0.22); border-color:rgba(255,255,255,0.5); }
-.alt-row-header  { display:flex; justify-content:space-between; align-items:center; }
-.alt-label { font-size:11.5px; color:#fff; font-weight:500; }
-.alt-prob  { font-size:10px; color:rgba(255,255,255,0.6); }
-
-/* SF2.2 Affordances */
-.aff-row { display:flex; align-items:center; justify-content:space-between; gap:8px; padding:3px 0; }
-.aff-label { font-size:11px; color:rgba(255,255,255,0.8); flex:1; }
-.aff-control {
-    background:rgba(0,0,0,0.25); border:1px solid rgba(255,255,255,0.25);
-    color:#fff; font-size:11px; border-radius:5px; padding:2px 6px; outline:none;
-}
-.aff-color { width:32px; height:22px; padding:0; border-radius:4px; cursor:pointer; }
-.aff-number { width:72px; }
-select.aff-control option { background:#1a1d27; }
-.aff-err {
-    font-size:11px; color:#f5a623; cursor:help; flex-shrink:0;
-    animation: fadeOut 3s forwards;
-}
-@keyframes fadeOut { 0%,70% { opacity:1; } 100% { opacity:0; } }
 
 #step-nav-edit-feedback {
     width:100%; background:rgba(0,0,0,0.25); border:1px solid rgba(255,255,255,0.2);
