@@ -140,7 +140,10 @@ const WorksheetSnapshot = (() => {
 
             // ── 2. Restore formulas and number formats (2D array writes) ──────
             rng.formulas     = snapshot.formulas;
-            rng.numberFormat = snapshot.numberFormat;
+            // numberFormat rejects null — replace with "General" (Office.js default)
+            rng.numberFormat = snapshot.numberFormat.map(row =>
+                row.map(v => (v === null || v === undefined || v === "") ? "General" : v)
+            );
 
             // ── 3. Restore fill / font / alignment per-cell ───────────────────
             // All property sets are queued before ctx.sync — one round-trip total.
@@ -150,17 +153,17 @@ const WorksheetSnapshot = (() => {
                 for (let c = 0; c < cols; c++) {
                     const cell = sheet.getRange(_cellAddr(startRow + r, startCol + c));
 
-                    // Fill — use clear() for no-fill, set color for any value
+                    // Fill — clear() for no-fill; only set a valid hex/named string
                     const fill = snapshot.fill[r][c];
-                    if (fill && fill !== '' && fill !== 'null') {
+                    if (fill && typeof fill === 'string' && fill !== 'null') {
                         cell.format.fill.color = fill;
                     } else {
                         cell.format.fill.clear();
                     }
 
-                    // Font color — null resets to default
+                    // Font color — null/falsy resets to automatic; string "null" also treated as reset
                     const fc = snapshot.fontColor[r][c];
-                    cell.format.font.color = (fc && fc !== '' && fc !== 'null') ? fc : null;
+                    cell.format.font.color = (fc && typeof fc === 'string' && fc !== 'null') ? fc : null;
 
                     // Font bold
                     cell.format.font.bold = !!snapshot.fontBold[r][c];
@@ -169,9 +172,12 @@ const WorksheetSnapshot = (() => {
                     const size = snapshot.fontSize[r][c];
                     if (size) cell.format.font.size = size;
 
-                    // Alignment
+                    // Alignment — Office.js only accepts specific enum strings;
+                    // empty string or any non-enum value throws "invalid argument"
+                    const VALID_ALIGN = ['Left','Center','Right','Fill','Justify','CenterAcrossSelection','Distributed','General'];
                     const align = snapshot.alignment[r][c];
-                    if (align) cell.format.horizontalAlignment = align;
+                    cell.format.horizontalAlignment =
+                        (align && VALID_ALIGN.includes(align)) ? align : 'General';
                 }
             }
 
