@@ -53,6 +53,7 @@ const StepNavigator = (() => {
     let _activePanel    = null;  // 'ask' | 'edit' | 'rubric' | null
     let _isRubricGate   = false;
     let _isVerifyGate   = false;
+    let _gateCallback   = null;  // one-shot: called on the next → click
 
     // ── Init ──────────────────────────────────────────────────────────────────
 
@@ -81,6 +82,7 @@ const StepNavigator = (() => {
         _activePanel    = null;
         _isRubricGate   = false;
         _isVerifyGate   = false;
+        _gateCallback   = null;
         _closePanel();
         _renderCard();
         _renderGraph();
@@ -143,20 +145,11 @@ const StepNavigator = (() => {
     function _onNext() {
         if (_isRunning) return;
 
-        if (_isVerifyGate) {
-            _isVerifyGate = false;
-            RubricManager.resolveVerify();
-            dismiss();
-            _resolve();
-            return;
-        }
-
-        if (_isRubricGate) {
-            _isRubricGate = false;
-            RubricManager.resolveGate();
-            _overlay.classList.remove('visible');
-            _chatPanel.classList.remove('nav-active');
-            _resolve();
+        // Gate mode: rubric-gate or verify-gate — delegate entirely to the registered callback
+        if (_gateCallback) {
+            const cb = _gateCallback;
+            _gateCallback = null;
+            cb();
             return;
         }
 
@@ -164,6 +157,16 @@ const StepNavigator = (() => {
             _overlay.classList.remove('failed');
             _resolve();
         }
+    }
+
+    /**
+     * Register a one-shot callback for the next → click.
+     * Called by RubricManager.showRubricGate() and showVerifyResults().
+     * @param {'rubric'|'verify'} _mode  (informational, unused internally)
+     * @param {Function}          cb     called when → is clicked
+     */
+    function setGateMode(_mode, cb) {
+        _gateCallback = cb;
     }
 
     function _onPrev() {
@@ -526,5 +529,5 @@ const StepNavigator = (() => {
         return Math.max(0, chain.nodeIds.indexOf(chain.currentNodeId));
     }
 
-    return { init, load, markRunning, markFailed, waitForNext, dismiss, refreshGraph };
+    return { init, load, markRunning, markFailed, waitForNext, dismiss, refreshGraph, setGateMode };
 })();

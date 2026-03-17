@@ -63,7 +63,10 @@ const RubricManager = (() => {
 
     /**
      * Show the "Review Requirements" gate before execution.
-     * Resolves when user clicks Start.
+     * Resolves when the user clicks Start →.
+     *
+     * Registers a one-shot gate callback on StepNavigator so the next →
+     * click resolves the promise — no shared boolean flag needed between modules.
      */
     function showRubricGate() {
         _lockNav();
@@ -81,14 +84,16 @@ const RubricManager = (() => {
         _expl.textContent    = '';
         _qaList.innerHTML    = '';
 
-        return new Promise(resolve => { _advanceResolve = resolve; });
-    }
-
-    /** Called by the navigator's _onNext when _isRubricGate is true. */
-    function resolveGate() {
-        if (_advanceResolve) { const r = _advanceResolve; _advanceResolve = null; r(); }
-        _overlay.classList.remove('rubric-gate');
-        showPanel(false);
+        return new Promise(resolve => {
+            _advanceResolve = resolve;
+            // Hand off to StepNavigator: the very next → click should fire this teardown
+            StepNavigator.setGateMode('rubric', () => {
+                if (_advanceResolve) { const r = _advanceResolve; _advanceResolve = null; r(); }
+                _overlay.classList.remove('rubric-gate', 'visible');
+                _chatPanel.classList.remove('nav-active');
+                showPanel(false);
+            });
+        });
     }
 
     /**
@@ -176,14 +181,15 @@ const RubricManager = (() => {
         _btnNext.textContent = 'Done ✓';
         _btnNext.disabled    = false;
 
-        return new Promise(resolve => { _advanceResolve = resolve; });
-    }
-
-    /** Called by navigator's _onNext when in verify-gate mode. */
-    function resolveVerify() {
-        if (_advanceResolve) { const r = _advanceResolve; _advanceResolve = null; r(); }
-        _overlay.classList.remove('verify-gate');
-        showPanel(false);
+        return new Promise(resolve => {
+            _advanceResolve = resolve;
+            StepNavigator.setGateMode('verify', () => {
+                if (_advanceResolve) { const r = _advanceResolve; _advanceResolve = null; r(); }
+                _overlay.classList.remove('verify-gate', 'visible');
+                _chatPanel.classList.remove('nav-active');
+                showPanel(false);
+            });
+        });
     }
 
     // ── Render ────────────────────────────────────────────────────────────────
@@ -344,5 +350,5 @@ const RubricManager = (() => {
         _btnAsk.disabled  = true;
     }
 
-    return { init, setRubric, getRubric, showPanel, showRubricGate, resolveGate, showVerifyResults, resolveVerify };
+    return { init, setRubric, getRubric, showPanel, showRubricGate, showVerifyResults };
 })();
