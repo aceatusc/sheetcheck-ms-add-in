@@ -16,18 +16,27 @@ const ExecutionEngine = (() => {
 
     /**
      * Run segments sequentially, waiting for user confirmation after each one.
-     * @param {CodeSegment[]} segments
+     * @param {CodeSegment[] | (() => CodeSegment[])} segmentsOrGetter
      * @param {{ onStepDone?: Function, onStepFailed?: Function }} [callbacks]
      */
-    async function run(segments, callbacks = {}) {
-        if (!segments || segments.length === 0) return;
+    async function run(segmentsOrGetter, callbacks = {}) {
+        const getSegments = typeof segmentsOrGetter === 'function'
+            ? segmentsOrGetter
+            : () => segmentsOrGetter;
+
+        const initial = getSegments() || [];
+        if (!initial.length) return;
 
         _setStatus('running');
         _progressStrip.classList.add('visible');
-        _log('info', `Starting execution: ${segments.length} segment(s)`);
+        _log('info', `Starting execution: ${initial.length} segment(s)`);
 
-        for (let i = 0; i < segments.length; i++) {
+        let i = 0;
+        while (true) {
+            const segments = getSegments() || [];
+            if (i >= segments.length) break;
             const seg = segments[i];
+            if (!seg) break;
 
             _updateProgress(i, segments.length);
             _log('info', `▶ ${seg.description}`);
@@ -48,12 +57,15 @@ const ExecutionEngine = (() => {
                 console.error('[ExecutionEngine] Segment error:', err);
                 callbacks.onStepFailed?.(i);
                 await StepNavigator.markFailed(i, err.message);
+                i += 1;
                 continue;
             }
 
             if (stepOk) {
                 await StepNavigator.waitForNext(i);
             }
+
+            i += 1;
         }
 
         if (_statusDot.classList.contains('error')) {

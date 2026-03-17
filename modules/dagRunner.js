@@ -53,13 +53,13 @@ const DagRunner = (() => {
             taskLabel: chain.taskLabel,
         });
 
-        await ExecutionEngine.run(chain.segments, {
+        await ExecutionEngine.run(() => getChain(chainId)?.segments || [], {
             onStepDone: (i) => {
-                const edgeId = chain.edgeIds?.[i];
+                const edgeId = getChain(chainId)?.edgeIds?.[i];
                 if (edgeId) DagStore.markEdgeExecuted(edgeId, false);
             },
             onStepFailed: (i) => {
-                const edgeId = chain.edgeIds?.[i];
+                const edgeId = getChain(chainId)?.edgeIds?.[i];
                 if (edgeId) DagStore.markEdgeExecuted(edgeId, true);
             },
         });
