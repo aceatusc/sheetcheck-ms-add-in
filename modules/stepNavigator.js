@@ -36,6 +36,7 @@ const StepNavigator = (() => {
 
     // ── State ─────────────────────────────────────────────────────────────────
     let _segments       = [];
+    let _dagMeta        = null; // { chainId, rootNodeId, nodeIds[], edgeIds[], taskLabel }
     let _completedUpTo  = -1;
     let _currentIndex   = 0;
     let _isRunning      = false;
@@ -65,8 +66,9 @@ const StepNavigator = (() => {
         _rubricAdd.addEventListener('click', _onRubricAdd);
     }
 
-    function loadSegments(segments) {
+    function loadSegments(segments, dagMeta = null) {
         _segments       = segments;
+        _dagMeta        = dagMeta;
         _completedUpTo  = -1;
         _currentIndex   = 0;
         _isRunning      = false;
@@ -415,8 +417,20 @@ const StepNavigator = (() => {
                 _branches.push({ fromIndex: _currentIndex, segments: remaining });
             }
 
-            // Splice new chain into _segments from current index onward
-            _segments = [..._segments.slice(0, _currentIndex), ...newChain];
+            // Update DAG and splice new chain into _segments from current index onward
+            if (_dagMeta?.chainId) {
+                const updated = DagRunner.applyEdit(_dagMeta.chainId, _currentIndex, msg, newChain);
+                _segments = updated.segments;
+                _dagMeta = {
+                    chainId: updated.chainId,
+                    rootNodeId: updated.rootNodeId,
+                    nodeIds: updated.nodeIds,
+                    edgeIds: updated.edgeIds,
+                    taskLabel: updated.taskLabel,
+                };
+            } else {
+                _segments = [..._segments.slice(0, _currentIndex), ...newChain];
+            }
 
             // Mark completed state: only steps before edit point still counted
             _completedUpTo = Math.min(_completedUpTo, _currentIndex - 1);
@@ -430,9 +444,13 @@ const StepNavigator = (() => {
                     const fn = new (Object.getPrototypeOf(async function(){}).constructor)(firstSeg.code);
                     await fn();
                     _completedUpTo = Math.max(_completedUpTo, _currentIndex);
+                    const edgeId = _dagMeta?.edgeIds?.[_currentIndex];
+                    if (edgeId) DagStore.markEdgeExecuted(edgeId, false);
                     _editSend.textContent = '✓ Applied';
                 } catch (execErr) {
                     _editSend.textContent = '⚠ Run failed';
+                    const edgeId = _dagMeta?.edgeIds?.[_currentIndex];
+                    if (edgeId) DagStore.markEdgeExecuted(edgeId, true);
                     console.error('[StepNavigator] edit run error:', execErr.message);
                 }
             }
@@ -670,6 +688,12 @@ const StepNavigator = (() => {
         if (!_graphEl) return;
         _graphEl.innerHTML = '';
 
+        if (_dagMeta?.chainId) {
+            const rep = DagRunner.getGraphRepresentation(_dagMeta.chainId);
+            _renderGraphFromDag(rep);
+            return;
+        }
+
         const total = _segments.length;
         if (total === 0) return;
 
@@ -680,9 +704,8 @@ const StepNavigator = (() => {
         const PAD_X   = 10;
         const PAD_Y   = 10;
 
-        // ── Build rows ────────────────────────────────────────────────────────
+        // ── Build rows (legacy local-only rendering) ───────────────────────────
         // Row 0 = active path (_segments). Row 1..N = branches (oldest first).
-        // Each row: { segs[], fromIndex (where it branches from row 0), rowY }
         const rows = [];
         rows.push({ segs: _segments, fromIndex: -1 });
         _branches.forEach(b => rows.push({ segs: b.segments, fromIndex: b.fromIndex }));
@@ -751,8 +774,6 @@ const StepNavigator = (() => {
 
             // Draw edges (one per segment in this row)
             segs.forEach((seg, edgeIdx) => {
-                const absEdgeIdx = isBranch ? 0 : edgeIdx; // for status checks use _segments index
-                const trueIdx    = isBranch ? -1 : edgeIdx; // -1 = branch edge, not navigable
                 const x1 = nodeX(startNodeIndex + edgeIdx);
                 const x2 = nodeX(startNodeIndex + edgeIdx + 1);
                 const mx = (x1 + x2) / 2;
@@ -847,6 +868,159 @@ const StepNavigator = (() => {
 
         _graphEl.innerHTML = '';
         _graphEl.style.overflowX = 'auto';
+        _graphEl.appendChild(svg);
+    }
+
+    function _renderGraphFromDag(rep) {
+        if (!_graphEl) return;
+        _graphEl.innerHTML = '';
+
+        const rows = Array.isArray(rep?.rows) ? rep.rows : [];
+        if (rows.length === 0) return;
+
+        const main = rows.find(r => r.kind === 'main') || rows[0];
+        const total = (main.edgeIds || []).length;
+        if (total === 0) return;
+
+        const SVG_NS  = 'http://www.w3.org/2000/svg';
+        const NODE_R  = 5;
+        const EDGE_W  = 28;
+        const ROW_H   = 26;
+        const PAD_X   = 10;
+        const PAD_Y   = 10;
+
+        const mainNodes = total + 1;
+        const svgW = PAD_X * 2 + mainNodes * EDGE_W;
+        const svgH = PAD_Y * 2 + rows.length * ROW_H;
+
+        const svg = document.createElementNS(SVG_NS, 'svg');
+        svg.setAttribute('viewBox', `0 0 ${svgW} ${svgH}`);
+        svg.setAttribute('width', svgW);
+        svg.setAttribute('height', svgH);
+
+        const nodeX = i => PAD_X + i * EDGE_W;
+        const rowY  = r => PAD_Y + r * ROW_H + ROW_H / 2;
+
+        rows.forEach((row, rowIdx) => {
+            const isBranch = row.kind !== 'main';
+            const y = rowY(rowIdx);
+            const edgeIds = row.edgeIds || [];
+            const nodeCount = edgeIds.length + 1;
+            const startNodeIndex = isBranch ? (row.fromMainNodeIndex + 1) : 0;
+
+            // nodes
+            for (let ni = 0; ni < nodeCount; ni++) {
+                const absIdx = startNodeIndex + ni;
+                const x = nodeX(absIdx);
+                const dot = document.createElementNS(SVG_NS, 'circle');
+                dot.setAttribute('cx', x);
+                dot.setAttribute('cy', y);
+                dot.setAttribute('r', NODE_R);
+                dot.setAttribute('fill', isBranch
+                    ? 'rgba(255,255,255,0.1)'
+                    : (absIdx <= _completedUpTo + 1
+                        ? 'rgba(255,255,255,0.35)'
+                        : 'rgba(255,255,255,0.08)'));
+                dot.setAttribute('stroke', isBranch ? 'rgba(255,255,255,0.18)' : 'rgba(255,255,255,0.4)');
+                dot.setAttribute('stroke-width', '1');
+                svg.appendChild(dot);
+            }
+
+            // connector
+            if (isBranch) {
+                const fx  = nodeX(row.fromMainNodeIndex + 1);
+                const fy  = rowY(0);
+                const tx  = nodeX(startNodeIndex);
+                const ty  = y;
+                const mid = (fy + ty) / 2;
+                const path = document.createElementNS(SVG_NS, 'path');
+                path.setAttribute('d', `M${fx} ${fy} C${fx} ${mid} ${tx} ${mid} ${tx} ${ty}`);
+                path.setAttribute('fill', 'none');
+                path.setAttribute('stroke', 'rgba(255,255,255,0.12)');
+                path.setAttribute('stroke-width', '1.5');
+                path.setAttribute('stroke-dasharray', '3 2');
+                svg.appendChild(path);
+            }
+
+            // edges
+            edgeIds.forEach((edgeId, edgeIdx) => {
+                const edge = DagStore.getEdge(edgeId);
+                const seg = edge?.segment || {};
+
+                const x1 = nodeX(startNodeIndex + edgeIdx);
+                const x2 = nodeX(startNodeIndex + edgeIdx + 1);
+
+                const isActive = !isBranch && edgeIdx === _currentIndex;
+                const isExecuted = !isBranch && (edge?.executed || edgeIdx <= _completedUpTo);
+                const isFailed = !isBranch && (edge?.failed || _failedIndices.has(edgeIdx));
+                const isRunning = !isBranch && edgeIdx === _currentIndex && _isRunning;
+                const isReachable = !isBranch && (isExecuted || isFailed);
+
+                const line = document.createElementNS(SVG_NS, 'line');
+                line.setAttribute('x1', x1); line.setAttribute('y1', y);
+                line.setAttribute('x2', x2); line.setAttribute('y2', y);
+
+                let stroke, width, dash;
+                if (isBranch) {
+                    stroke = 'rgba(255,255,255,0.15)'; width = '1.5'; dash = '3 2';
+                } else if (isFailed) {
+                    stroke = '#f5643c'; width = isActive ? '3' : '2'; dash = 'none';
+                } else if (isActive && isExecuted) {
+                    stroke = '#fff'; width = '3'; dash = 'none';
+                } else if (isExecuted) {
+                    stroke = '#3ecf8e'; width = '2'; dash = 'none';
+                } else if (isActive) {
+                    stroke = '#4f8ef7'; width = '3'; dash = 'none';
+                } else {
+                    stroke = 'rgba(79,142,247,0.2)'; width = '1.5'; dash = '4 3';
+                }
+
+                line.setAttribute('stroke', stroke);
+                line.setAttribute('stroke-width', width);
+                if (dash !== 'none') line.setAttribute('stroke-dasharray', dash);
+                svg.appendChild(line);
+
+                if (isRunning) {
+                    const pulse = document.createElementNS(SVG_NS, 'line');
+                    pulse.setAttribute('x1', x1); pulse.setAttribute('y1', y);
+                    pulse.setAttribute('x2', x2); pulse.setAttribute('y2', y);
+                    pulse.setAttribute('stroke', 'rgba(79,142,247,0.5)');
+                    pulse.setAttribute('stroke-width', '6');
+                    const anim = document.createElementNS(SVG_NS, 'animate');
+                    anim.setAttribute('attributeName', 'stroke-opacity');
+                    anim.setAttribute('values', '0.5;0.1;0.5');
+                    anim.setAttribute('dur', '1s');
+                    anim.setAttribute('repeatCount', 'indefinite');
+                    pulse.appendChild(anim);
+                    svg.appendChild(pulse);
+                }
+
+                if (isActive && !isBranch) {
+                    const glow = document.createElementNS(SVG_NS, 'line');
+                    glow.setAttribute('x1', x1); glow.setAttribute('y1', y);
+                    glow.setAttribute('x2', x2); glow.setAttribute('y2', y);
+                    glow.setAttribute('stroke', isFailed ? 'rgba(245,100,60,0.3)' : 'rgba(255,255,255,0.2)');
+                    glow.setAttribute('stroke-width', '8');
+                    glow.setAttribute('stroke-linecap', 'round');
+                    svg.insertBefore(glow, line);
+                }
+
+                if (isReachable) {
+                    const hit = document.createElementNS(SVG_NS, 'line');
+                    hit.setAttribute('x1', x1); hit.setAttribute('y1', y);
+                    hit.setAttribute('x2', x2); hit.setAttribute('y2', y);
+                    hit.setAttribute('stroke', 'transparent');
+                    hit.setAttribute('stroke-width', '14');
+                    hit.style.cursor = 'pointer';
+                    hit.addEventListener('click', () => _navigate(edgeIdx));
+                    const title = document.createElementNS(SVG_NS, 'title');
+                    title.textContent = `${edgeIdx + 1}. ${seg.description || ''}`;
+                    hit.appendChild(title);
+                    svg.appendChild(hit);
+                }
+            });
+        });
+
         _graphEl.appendChild(svg);
     }
 

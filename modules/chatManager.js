@@ -53,15 +53,34 @@ const ChatManager = (() => {
             const segments = await LLMClient.generateCode(text, wsCtx, rubric);
             _showTyping(false);
 
-            // 3. Load segments into navigator
-            StepNavigator.loadSegments(segments);
+            // 3. Store DAG chain (in global in-memory state) and show Start button.
+            const chain = DagRunner.prepareChain(text, segments);
 
-            // 4. Show rubric gate — user reviews requirements, clicks Start
-            await StepNavigator.showRubricGate();
-
-            // 5. Execute
-            _appendMessage('agent', `Applying ${segments.length} step(s) to your sheet...`);
-            await ExecutionEngine.run(segments);
+            _appendMessage('agent',
+                `Ready to apply ${segments.length} step(s). Click Start when you’re ready.`,
+                {
+                    actions: [{
+                        label: 'Start',
+                        primary: true,
+                        onClick: async (btn) => {
+                            if (_isBusy) return;
+                            btn.disabled = true;
+                            btn.textContent = 'Starting…';
+                            _setBusy(true);
+                            try {
+                                _appendMessage('agent', `Applying ${segments.length} step(s) to your sheet...`);
+                                await DagRunner.start(chain.chainId);
+                            } catch (err) {
+                                _appendMessage('agent', `⚠️ ${err.message}`);
+                            } finally {
+                                _setBusy(false);
+                                btn.textContent = 'Start';
+                                btn.disabled = false;
+                            }
+                        }
+                    }],
+                }
+            );
 
         } catch(err) {
             _showTyping(false);
@@ -71,11 +90,27 @@ const ChatManager = (() => {
         _setBusy(false);
     }
 
-    function _appendMessage(role, text) {
+    function _appendMessage(role, text, options = {}) {
         const w = document.createElement('div');
         w.className = `message ${role}`;
         const b = document.createElement('div');
-        b.className = 'message-bubble'; b.textContent = text;
+        b.className = 'message-bubble';
+        b.textContent = text;
+
+        const actions = Array.isArray(options.actions) ? options.actions : [];
+        if (actions.length) {
+            const row = document.createElement('div');
+            row.className = 'message-actions';
+            actions.forEach(a => {
+                const btn = document.createElement('button');
+                btn.className = `message-action-btn${a.primary ? ' primary' : ''}`;
+                btn.textContent = a.label || 'Action';
+                btn.addEventListener('click', () => a.onClick?.(btn));
+                row.appendChild(btn);
+            });
+            b.appendChild(row);
+        }
+
         const m = document.createElement('span');
         m.className = 'message-meta'; m.textContent = role === 'user' ? 'You' : 'Assistant';
         w.appendChild(b); w.appendChild(m);
