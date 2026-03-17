@@ -9,6 +9,7 @@
     <link rel="stylesheet" href="styles/chat.css" />
     <link rel="stylesheet" href="styles/execution.css" />
     <link rel="stylesheet" href="styles/stepNavigator.css" />
+    <link rel="stylesheet" href="styles/journey.css" />
 </head>
 <body>
 
@@ -18,6 +19,7 @@
         <div class="logo-dot"></div>
         <h1>SheetCheck</h1>
         <span class="model-badge">AI</span>
+        <button id="journey-btn" title="View session journey">📍 Journey</button>
     </div>
     <div id="message-feed">
         <div class="message agent" id="welcome-message">
@@ -112,11 +114,13 @@
     </div>
 </div>
 
+<script src="modules/dagStore.js"></script>
 <script src="modules/officeInit.js"></script>
 <script src="modules/worksheetContext.js"></script>
 <script src="modules/llmClient.js"></script>
 <script src="modules/stepNavigator.js"></script>
 <script src="modules/executionEngine.js"></script>
+<script src="modules/journeyPanel.js"></script>
 <script src="modules/chatManager.js"></script>
 <script src="modules/app.js"></script>
 </body>
