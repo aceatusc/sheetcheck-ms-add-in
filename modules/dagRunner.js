@@ -96,6 +96,68 @@ const DagRunner = (() => {
         return updated;
     }
 
-    return { prepareChain, start, applyEdit, getChain, getActiveChain };
+    /**
+     * Derive a graph representation (main row + branch rows) directly from the global DAG.
+     * Returned shape is stable for StepNavigator rendering.
+     *
+     * rows[] item:
+     *  - edgeIds: string[] (ordered)
+     *  - fromMainNodeIndex: number (-1 for main row; otherwise the node index in the main path where it forks)
+     *  - kind: 'main' | 'branch'
+     */
+    function getGraphRepresentation(chainId) {
+        const chain = getChain(chainId);
+        if (!chain?.nodeIds?.length) return { rows: [], mainEdgeIds: [] };
+
+        const dag = DagStore.getAll();
+        const edges = Array.isArray(dag?.edges) ? dag.edges : [];
+
+        const edgesByFrom = {};
+        edges.forEach(e => {
+            if (!edgesByFrom[e.from]) edgesByFrom[e.from] = [];
+            edgesByFrom[e.from].push(e);
+        });
+
+        const mainEdgeIds = chain.edgeIds || [];
+        const mainEdgeSet = new Set(mainEdgeIds);
+
+        const rows = [{
+            kind: 'main',
+            edgeIds: mainEdgeIds,
+            fromMainNodeIndex: -1,
+        }];
+
+        // For each node on the main path, include non-main outgoing edges as branches.
+        chain.nodeIds.forEach((nodeId, nodeIdx) => {
+            const outgoing = edgesByFrom[nodeId] || [];
+            outgoing
+                .filter(e => !mainEdgeSet.has(e.id))
+                .forEach(startEdge => {
+                    const branchEdgeIds = [];
+                    let cur = startEdge;
+                    const visited = new Set();
+
+                    while (cur && !visited.has(cur.id)) {
+                        visited.add(cur.id);
+                        branchEdgeIds.push(cur.id);
+                        const nextOut = edgesByFrom[cur.to] || [];
+                        if (nextOut.length !== 1) break;
+                        cur = nextOut[0];
+                    }
+
+                    if (branchEdgeIds.length) {
+                        rows.push({
+                            kind: 'branch',
+                            edgeIds: branchEdgeIds,
+                            fromMainNodeIndex: nodeIdx,
+                        });
+                    }
+                });
+        });
+
+        return { rows, mainEdgeIds };
+    }
+
+    return { prepareChain, start, applyEdit, getChain, getActiveChain, getGraphRepresentation };
 })();
 

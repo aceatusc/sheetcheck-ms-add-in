@@ -100,6 +100,12 @@ const DagStore = (() => {
         if (e) { e.executed = true; e.failed = failed; }
     }
 
+    /** Get an edge by id. */
+    function getEdge(edgeId) {
+        _ensureInit();
+        return _dag.edges.find(e => e.id === edgeId) || null;
+    }
+
     /**
      * Replace tail edges from a given node (for Edit flow).
      * Removes all edges that are descendants of fromNodeId
@@ -188,6 +194,6 @@ const DagStore = (() => {
         _dag.edges.length = 0;
     }
 
-    return { addChain, branchFrom, markEdgeExecuted, getGraph, findPath,
+    return { addChain, branchFrom, markEdgeExecuted, getEdge, getGraph, findPath,
              getIncomingEdge, getNode, getAll, clear, init };
 })();
