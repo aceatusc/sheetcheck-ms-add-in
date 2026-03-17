@@ -206,8 +206,16 @@ const DagRunner = (() => {
     // ── Edit branching ────────────────────────────────────────────────────────
 
     /**
-     * Replace the active chain from fromIndex onward with newSegments.
-     * The fork hangs off the node at fromIndex in the original chain.
+     * Branch from fromIndex: add a new chain off the fork node.
+     *
+     * The ORIGINAL chain's nodeIds/edgeIds are preserved unchanged as the
+     * permanent "main" path shown in row 0 of the graph. The edit creates a
+     * new branch that forks from the same node, visible as a diagonal row below.
+     *
+     * The chain's "active" execution path (segments/nodeIds/edgeIds) is switched
+     * to follow the branch so ExecutionEngine continues on the new path.
+     * originalNodeIds / originalEdgeIds always hold the first-generation path.
+     *
      * Returns the updated chain.
      */
     function applyEdit(chainId, fromIndex, taskLabel, newSegments) {
@@ -217,14 +225,22 @@ const DagRunner = (() => {
         const forkNodeId = chain.nodeIds[fromIndex];
         if (!forkNodeId) throw new Error('Invalid edit index.');
 
+        // Preserve original path on first edit; keep it stable on subsequent edits
+        const originalNodeIds = chain.originalNodeIds || chain.nodeIds;
+        const originalEdgeIds = chain.originalEdgeIds || chain.edgeIds;
+
         const branched = DagStore.addChain(taskLabel, newSegments, forkNodeId);
 
         const updated = {
             ...chain,
             taskLabel,
+            // Active execution path = prefix up to fork + new branch
             segments:    [...chain.segments.slice(0, fromIndex), ...newSegments],
             nodeIds:     [...chain.nodeIds.slice(0, fromIndex + 1), ...branched.nodeIds.slice(1)],
             edgeIds:     [...chain.edgeIds.slice(0, fromIndex),     ...branched.edgeIds],
+            // Original path stays fixed for graph rendering
+            originalNodeIds,
+            originalEdgeIds,
             currentNodeId: forkNodeId,
         };
 
@@ -247,28 +263,29 @@ const DagRunner = (() => {
         const chain = getChain(chainId);
         if (!chain) return { nodes: [], edges: [], currentNodeId: null, cols: 0, rows: 1 };
 
-        const dag = DagStore.getAll();
+        const dag      = DagStore.getAll();
         const allEdges = dag.edges;
 
-        // ── 1. Assign columns to main-chain nodes ──────────────────────────
-        //   nodeId → { col, row }
+        // The "main" path is always the original chain — it never moves.
+        // After an edit, chain.originalNodeIds holds the first-generation path.
+        const mainNodeIds = chain.originalNodeIds || chain.nodeIds;
+        const mainEdgeIds = chain.originalEdgeIds || chain.edgeIds;
+        const mainEdgeSet = new Set(mainEdgeIds);
+
+        // ── 1. Assign columns to main-chain nodes (row 0) ─────────────────
         const layout = {};
-        chain.nodeIds.forEach((nid, i) => { layout[nid] = { col: i, row: 0 }; });
+        mainNodeIds.forEach((nid, i) => { layout[nid] = { col: i, row: 0 }; });
 
-        // ── 2. Walk branches (BFS from fork nodes not on main chain) ──────
-        const mainNodeSet = new Set(chain.nodeIds);
-        const mainEdgeSet = new Set(chain.edgeIds);
-
+        // ── 2. Walk ALL non-main edges as branches ────────────────────────
+        // Each distinct outgoing non-main edge from a main node starts a new row.
         let branchRow = 0;
-        // Map: edgeId → branchRow (for branch edges)
-        const branchRowMap = {};
+        const branchRowMap = {};   // edgeId → branchRow
 
-        chain.nodeIds.forEach((forkNodeId, forkCol) => {
+        mainNodeIds.forEach((forkNodeId, forkCol) => {
             const outgoing = allEdges.filter(e => e.from === forkNodeId && !mainEdgeSet.has(e.id));
             outgoing.forEach(startEdge => {
                 branchRow++;
-                // Walk this branch linearly
-                let col = forkCol;   // branch starts at fork column (diagonal start)
+                let col = forkCol;  // diagonal: branch starts at fork column
                 let cur = startEdge;
                 const visited = new Set();
                 while (cur && !visited.has(cur.id)) {
@@ -283,7 +300,7 @@ const DagRunner = (() => {
         });
 
         const totalRows = branchRow + 1;
-        const totalCols = chain.nodeIds.length;
+        const totalCols = mainNodeIds.length;
 
         // ── 3. Build node descriptors ──────────────────────────────────────
         const visitedNodeIds = _visitedNodes(chain);
@@ -293,7 +310,7 @@ const DagRunner = (() => {
         const seenNodes = new Set();
 
         // Main chain nodes
-        chain.nodeIds.forEach(nid => {
+        mainNodeIds.forEach(nid => {
             if (seenNodes.has(nid)) return;
             seenNodes.add(nid);
             const n = DagStore.getNode(nid);
@@ -334,7 +351,7 @@ const DagRunner = (() => {
         const edgesOut = [];
 
         // Main chain edges
-        chain.edgeIds.forEach(eid => {
+        mainEdgeIds.forEach(eid => {
             const e = DagStore.getEdge(eid);
             if (!e) return;
             const fp = layout[e.from] || { col: 0, row: 0 };
