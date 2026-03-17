@@ -464,16 +464,17 @@ const StepNavigator = (() => {
         const msg = _editFeedback.value.trim();
         if (!msg) return;
 
-        const chain   = DagRunner.getChain(_chainId);
-        const fromIdx = _currentIndex(chain);
-        const seg     = _nextSegment(chain);    // edit the upcoming step
+        const chain          = DagRunner.getChain(_chainId);
+        const fromIdx        = _currentIndex(chain);
+        const seg            = _nextSegment(chain);    // edit the upcoming step
+        const remaining      = chain.segments.slice(fromIdx + 1);
 
         _editSend.disabled    = true;
         _editSend.textContent = '…';
 
         try {
             const wsCtx    = await WorksheetContext.gather(['sheet']);
-            const newChain = await LLMClient.edit(msg, wsCtx, seg);
+            const newChain = await LLMClient.edit(msg, wsCtx, seg, remaining);
             _editFeedback.value = '';
 
             DagRunner.applyEdit(_chainId, fromIdx, chain.taskLabel, newChain);
