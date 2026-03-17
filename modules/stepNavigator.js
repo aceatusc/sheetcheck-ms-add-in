@@ -308,12 +308,13 @@ const StepNavigator = (() => {
         if (!graph.nodes.length) return;
 
         const svgW = PAD_X * 2 + graph.cols * COL_W;
-        const svgH = PAD_Y * 2 + graph.rows * ROW_H;
+        // Height: pad top + (rows-1 gaps) + pad bottom — no extra trailing row
+        const svgH = PAD_Y * 2 + Math.max(0, graph.rows - 1) * ROW_H;
 
         const svg = document.createElementNS(SVG_NS, 'svg');
         svg.setAttribute('viewBox', `0 0 ${svgW} ${svgH}`);
-        svg.setAttribute('width',  svgW);
-        svg.setAttribute('height', svgH);
+        // Let CSS width constrain the element; height scales proportionally
+        svg.setAttribute('width',  '100%');
         svg.style.overflow = 'visible';
 
         // ── Edges (drawn first, behind nodes) ────────────────────────────────
