@@ -316,6 +316,7 @@ const StepNavigator = (() => {
 
     async function _navigate(targetIndex) {
         // Allow visiting any step that has been reached (completed or failed)
+        // TODO: when navigating the edges `code` or `undo_code` should be applied
         if (targetIndex < 0 || (targetIndex > _completedUpTo && !_failedIndices.has(targetIndex))) return;
         _currentIndex  = targetIndex;
         _askHistory    = [];
@@ -331,6 +332,7 @@ const StepNavigator = (() => {
 
     // Navigate to a segment by its id — called from graph edge click
     async function _navigateById(segId) {
+        // TODO: extract the chain of `code` and `undo_code` to apply them accordingly
         const idx = _segments.findIndex(s => s.id === segId);
         if (idx < 0) return;
         if (idx > _completedUpTo && !_failedIndices.has(idx)) return;
@@ -406,13 +408,16 @@ const StepNavigator = (() => {
         const remaining      = _segments.slice(_currentIndex + 1);  // tail after edit point
         _editSend.disabled   = true;
         _editSend.textContent = '…';
+        // TODO: _editSend should animate to show the waiting step
         try {
             const wsCtx  = await WorksheetContext.gather(['sheet']);
+            // TODO: should not get remaining; it should generate the new chain
             // /edit now returns an array: the edited step + regenerated remainder
             const newChain = await LLMClient.edit(msg, wsCtx, seg, remaining);
             _editFeedback.value = '';
 
             // Save the old tail as a visual branch before replacing it
+            // TODO: remove it; not needed when rendering is happening from dagRunner
             if (remaining.length > 0) {
                 _branches.push({ fromIndex: _currentIndex, segments: remaining });
             }
@@ -684,6 +689,9 @@ const StepNavigator = (() => {
     // separate row below the branch point, connected by a curved path.
     // Clicking any reached edge navigates to it.
 
+    // TODO: refactor it to make it only one engine (only run from DAG)
+    // TODO: use a library for drawing this if necessary
+    // TODO: the main line should remain the same and the new fork appear with a diagonal line on bottom
     function _renderGraph() {
         if (!_graphEl) return;
         _graphEl.innerHTML = '';
