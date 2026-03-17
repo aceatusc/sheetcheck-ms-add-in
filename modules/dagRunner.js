@@ -229,86 +229,106 @@ const DagRunner = (() => {
         const dag      = DagStore.getAll();
         const allEdges = dag.edges;
 
-        // Build fast lookup: nodeId → outgoing edges
+        // Fast lookup: nodeId → outgoing edges
         const edgesFrom = {};
         allEdges.forEach(e => {
             (edgesFrom[e.from] = edgesFrom[e.from] || []).push(e);
         });
 
-        // The original (first-generation) chain always occupies row 0.
-        const mainNodeIds = chain.originalNodeIds || chain.nodeIds;
-        const mainEdgeIds = chain.originalEdgeIds || chain.edgeIds;
-        const mainEdgeSet = new Set(mainEdgeIds);
-
-        // ── 1. Assign layout to ALL nodes via BFS from the DAG root ───────
+        // ── Layout model ───────────────────────────────────────────────────
         //
-        // Rules:
-        //   - Main-chain node i → { col: i, row: 0 }
-        //   - A non-main edge forking from a node at (col, row) places its
-        //     destination at (col+1, nextAvailableRow) — one row per branch,
-        //     counting depth-first so nested forks get increasing row numbers.
-        //   - Subsequent edges continuing a branch keep the same row and
-        //     increment col normally.
+        // We track a stack of "active paths" — each path is a linear sequence
+        // of edges that runs horizontally on its own row. The original chain is
+        // path 0 (row 0). Each edit creates a new path that forks from some node
+        // on an existing path.
         //
-        // We use a queue of { nodeId, col, row } and assign layout on first visit.
+        // Key invariant: once a path is assigned a row, ALL its nodes stay on
+        // that row at their assigned columns. A fork never re-routes a path —
+        // it always creates a NEW path on a new row below.
+        //
+        // We build paths by collecting the sequence of edge-chains from the DAG:
+        //   - Start with the original chain edges as path 0
+        //   - For every edit, chain.edgeIds contains the NEW active edges
+        //     (prefix of original + new branch edges). Collect all edge IDs
+        //     that appear in any version of chain.edgeIds across edits.
+        //   - Any edge not on any "active path" is an abandoned old branch.
 
-        const layout = {};   // nodeId → { col, row }
-        const edgeRow = {};  // edgeId → row it belongs to (for edge descriptors)
+        // Collect all distinct linear paths in order of creation.
+        // Path 0 = original chain. Path 1 = first edit's new edges. Etc.
+        // We detect paths by finding all unique sequences of edges that share
+        // a common prefix with the original chain.
 
-        // Seed main chain
-        mainNodeIds.forEach((nid, i) => { layout[nid] = { col: i, row: 0 }; });
+        const originalNodeIds = chain.originalNodeIds || chain.nodeIds;
+        const originalEdgeIds = chain.originalEdgeIds || chain.edgeIds;
+        const originalEdgeSet = new Set(originalEdgeIds);
 
-        // Track the next available branch row
+        // The "current active" edges are chain.edgeIds (may differ after edits)
+        const activeEdgeSet = new Set(chain.edgeIds);
+
+        // layout: nodeId → { col, row }
+        const layout = {};
+
+        // ── 1. Assign original chain to row 0 ────────────────────────────
+        originalNodeIds.forEach((nid, i) => { layout[nid] = { col: i, row: 0 }; });
+
+        // ── 2. Collect all non-original edges, grouped by their fork point ─
+        // Walk the entire DAG. For every node that has a layout position,
+        // look for outgoing edges NOT in the original chain.
+        // Each such set of edges forms a branch path starting from that node.
+        // Assign each branch path its own row, continuing from the fork column.
+
         let nextRow = 1;
 
-        // BFS queue: process nodes in column order so parent branches are
-        // laid out before child branches that fork from them.
-        // We iterate main-chain nodes in order, then discover branches from each.
-        const processQueue = [...mainNodeIds];
-        const processedNodes = new Set(mainNodeIds);
-
-        // Assign main edge rows
-        mainEdgeIds.forEach(eid => { edgeRow[eid] = 0; });
+        // Process nodes level-by-level (BFS order by column then row) so that
+        // parent branches are assigned before child branches.
+        const queue = originalNodeIds.map(nid => nid); // start with original nodes
+        const queued = new Set(originalNodeIds);
 
         let head = 0;
-        while (head < processQueue.length) {
-            const nodeId = processQueue[head++];
-            const pos    = layout[nodeId];
+        while (head < queue.length) {
+            const nodeId = queue[head++];
+            const pos = layout[nodeId];
             if (!pos) continue;
 
-            const outgoing = edgesFrom[nodeId] || [];
-            outgoing
-                .filter(e => !mainEdgeSet.has(e.id))
-                .forEach(e => {
-                    // This edge forks from an existing node — it starts a new row
-                    const forkRow = nextRow++;
-                    edgeRow[e.id] = forkRow;
+            // Find all non-original outgoing edges from this node
+            const forkEdges = (edgesFrom[nodeId] || [])
+                .filter(e => !originalEdgeSet.has(e.id) && !layout[e.to]);
 
-                    // Walk this branch linearly, assigning the same row
-                    let col = pos.col;
-                    let cur = e;
-                    const visited = new Set();
-                    while (cur && !visited.has(cur.id)) {
-                        visited.add(cur.id);
-                        edgeRow[cur.id] = edgeRow[cur.id] ?? forkRow; // first assignment wins
-                        col++;
-                        if (!layout[cur.to]) {
-                            layout[cur.to] = { col, row: forkRow };
-                        }
-                        if (!processedNodes.has(cur.to)) {
-                            processedNodes.add(cur.to);
-                            processQueue.push(cur.to);
-                        }
-                        // Continue along the single non-branching successor on this row
-                        const nexts = (edgesFrom[cur.to] || []).filter(ne => !mainEdgeSet.has(ne.id));
-                        // Only follow if exactly one continues straight (no new forks yet)
-                        cur = nexts.length === 1 && !edgeRow[nexts[0].id] ? nexts[0] : null;
+            forkEdges.forEach(startEdge => {
+                // Allocate a new row for this branch
+                const branchRow = nextRow++;
+
+                // Walk the branch linearly: follow edges where the destination
+                // doesn't have a layout yet. Stop when we hit a node already
+                // placed (e.g. a node shared with another path) or a fork.
+                let col = pos.col;   // branch starts at the fork node's column
+                let cur = startEdge;
+                const seen = new Set();
+
+                while (cur && !seen.has(cur.id)) {
+                    seen.add(cur.id);
+                    col++;
+
+                    if (!layout[cur.to]) {
+                        layout[cur.to] = { col, row: branchRow };
                     }
-                });
+
+                    if (!queued.has(cur.to)) {
+                        queued.add(cur.to);
+                        queue.push(cur.to);
+                    }
+
+                    // Continue along the branch: follow the single outgoing
+                    // edge whose destination doesn't have a layout yet.
+                    const nexts = (edgesFrom[cur.to] || [])
+                        .filter(ne => !originalEdgeSet.has(ne.id) && !layout[ne.to]);
+                    cur = nexts.length === 1 ? nexts[0] : null;
+                }
+            });
         }
 
-        // ── 2. Compute grid dimensions from layout ─────────────────────────
-        let maxCol = mainNodeIds.length - 1;
+        // ── 3. Compute grid dimensions ─────────────────────────────────────
+        let maxCol = originalNodeIds.length - 1;
         let maxRow = 0;
         Object.values(layout).forEach(({ col, row }) => {
             if (col > maxCol) maxCol = col;
@@ -317,7 +337,7 @@ const DagRunner = (() => {
         const totalCols = maxCol + 1;
         const totalRows = maxRow + 1;
 
-        // ── 3. Build node descriptors ──────────────────────────────────────
+        // ── 4. Build node descriptors ──────────────────────────────────────
         const visitedNodeIds = _visitedNodes(chain);
         const currentNodeId  = chain.currentNodeId;
         const nodesOut = [];
@@ -338,11 +358,10 @@ const DagRunner = (() => {
             });
         });
 
-        // ── 4. Build edge descriptors ──────────────────────────────────────
+        // ── 5. Build edge descriptors ──────────────────────────────────────
         const edgesOut = [];
         const seenEdges = new Set();
 
-        // All edges that have a layout position for both endpoints
         allEdges.forEach(e => {
             if (seenEdges.has(e.id)) return;
             const fp = layout[e.from];
@@ -350,15 +369,15 @@ const DagRunner = (() => {
             if (!fp || !tp) return;
             seenEdges.add(e.id);
             edgesOut.push({
-                id:        e.id,
-                fromId:    e.from,
-                toId:      e.to,
-                label:     e.segment?.description || '',
-                isBranch:  !mainEdgeSet.has(e.id),
-                fromCol:   fp.col, fromRow: fp.row,
-                toCol:     tp.col, toRow:   tp.row,
-                executed:  e.executed,
-                failed:    e.failed,
+                id:       e.id,
+                fromId:   e.from,
+                toId:     e.to,
+                label:    e.segment?.description || '',
+                isBranch: !originalEdgeSet.has(e.id),
+                fromCol:  fp.col, fromRow: fp.row,
+                toCol:    tp.col, toRow:   tp.row,
+                executed: e.executed,
+                failed:   e.failed,
             });
         });
 
