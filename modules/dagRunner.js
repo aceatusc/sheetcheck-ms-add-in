@@ -122,10 +122,18 @@ const DagRunner = (() => {
 
         // Prefer the most recently executed incoming edge
         const edge = incoming.find(e => e.executed) || incoming[0];
+        const desc = edge.segment?.description || edge.id;
 
-        await _runCode(edge.segment.undo_code);
+        _log('info', `↩ Undo: ${desc}`);
+        try {
+            await _runCode(edge.segment.undo_code);
+        } catch (err) {
+            _log('err', `✗ Undo failed (${desc}): ${err.message}`);
+            throw err;
+        }
         DagStore.markEdge(edge.id, { executed: false, failed: false });
         chain.currentNodeId = edge.from;
+        _log('ok', `✓ Undone: ${desc}`);
         return { edge, segment: edge.segment };
     }
 
@@ -143,14 +151,29 @@ const DagRunner = (() => {
         if (!path) throw new Error('No path to target node.');
 
         for (const hop of path) {
+            const desc = hop.edge.segment?.description || hop.edge.id;
             if (hop.direction === 'forward') {
-                await _runCode(hop.edge.segment.code);
+                _log('info', `▶ Navigate forward: ${desc}`);
+                try {
+                    await _runCode(hop.edge.segment.code);
+                } catch (err) {
+                    _log('err', `✗ Navigate forward failed (${desc}): ${err.message}`);
+                    throw err;
+                }
                 DagStore.markEdge(hop.edge.id, { executed: true, failed: false });
                 chain.currentNodeId = hop.edge.to;
+                _log('ok', `✓ ${desc}`);
             } else {
-                await _runCode(hop.edge.segment.undo_code);
+                _log('info', `↩ Navigate undo: ${desc}`);
+                try {
+                    await _runCode(hop.edge.segment.undo_code);
+                } catch (err) {
+                    _log('err', `✗ Navigate undo failed (${desc}): ${err.message}`);
+                    throw err;
+                }
                 DagStore.markEdge(hop.edge.id, { executed: false, failed: false });
                 chain.currentNodeId = hop.edge.from;
+                _log('ok', `✓ Undone: ${desc}`);
             }
         }
 
@@ -392,6 +415,15 @@ const DagRunner = (() => {
         return visited;
     }
 
+    /** Write a line to the visible Execution Log. Safe to call before ExecutionEngine exists. */
+    function _log(type, msg) {
+        try { ExecutionEngine.log(type, msg); } catch (_) { console.log(`[DagRunner][${type}] ${msg}`); }
+    }
+
+    /**
+     * Compile and run a code string as an async function.
+     * Throws on error (caller is responsible for catching and logging).
+     */
     async function _runCode(code) {
         if (!code) return;
         const fn = new (Object.getPrototypeOf(async function(){}).constructor)(code);

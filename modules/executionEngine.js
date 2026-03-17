@@ -70,7 +70,7 @@ const ExecutionEngine = (() => {
             _log('ok', 'All segments complete.');
         }
 
-        await StepNavigator.showVerifyResults?.();
+        await RubricManager.showVerifyResults();
     }
 
     // ── Private helpers ───────────────────────────────────────────────────────
@@ -95,5 +95,5 @@ const ExecutionEngine = (() => {
         _logEl.scrollTop = _logEl.scrollHeight;
     }
 
-    return { run };
+    return { run, log: _log };
 })();

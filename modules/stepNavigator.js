@@ -177,7 +177,11 @@ const StepNavigator = (() => {
                 _renderCard();
                 _renderGraph();
             })
-            .catch(err => console.error('[StepNavigator] stepBack:', err));
+            .catch(err => {
+                ExecutionEngine.log('err', `✗ Step back failed: ${err.message}`);
+                _renderCard();
+                _renderGraph();
+            });
     }
 
     async function _onNodeClick(nodeId) {
@@ -189,7 +193,9 @@ const StepNavigator = (() => {
             _renderGraph();
             await _focusRanges();
         } catch (err) {
-            console.error('[StepNavigator] navigateTo:', err);
+            ExecutionEngine.log('err', `✗ Navigate failed: ${err.message}`);
+            _renderCard();
+            _renderGraph();
         }
     }
 
@@ -468,14 +474,14 @@ const StepNavigator = (() => {
                 _editSend.textContent = '✓ Applied';
             } catch (execErr) {
                 _editSend.textContent = '⚠ Run failed';
-                console.error('[StepNavigator] edit exec:', execErr.message);
+                ExecutionEngine.log('err', `✗ Edit exec failed: ${execErr.message}`);
             }
 
             _renderCard();
             _renderGraph();
         } catch (err) {
             _editSend.textContent = '⚠ Error';
-            console.error('[StepNavigator] edit error:', err);
+            ExecutionEngine.log('err', `✗ Edit LLM error: ${err.message}`);
         } finally {
             setTimeout(() => {
                 _editSend.textContent = 'Apply Edit';
