@@ -562,8 +562,6 @@ const StepNavigator = (() => {
         const newVal = p.type === 'number' ? Number(rawValue) : String(rawValue);
         if (String(newVal) === String(oldVal)) return;  // no change
 
-        btn.style.opacity = '0.5';
-
         try {
             // Patch: replace the old literal with the new one in the code string.
             // Numbers: match the bare number; text/colors: match the quoted string.
@@ -590,17 +588,13 @@ const StepNavigator = (() => {
             seg.code          = patchedCode;
             seg.parameters[idx].value = newVal;
 
-            inp.style.opacity = '1';
             inp.style.borderColor = 'rgba(62,207,142,0.8)';
             setTimeout(() => { inp.style.borderColor = ''; }, 800);
             ExecutionEngine.log('ok', `✓ Param "${p.label}" → ${newVal}`);
         } catch (err) {
-            inp.style.opacity = '1';
             inp.style.borderColor = 'rgba(245,100,60,0.8)';
             setTimeout(() => { inp.style.borderColor = ''; }, 800);
-        } finally {
-            inp.style.opacity = '1';
-        }
+        } finally {}
     }
 
     function _escapeRegex(str) {
