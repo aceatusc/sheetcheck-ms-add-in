@@ -128,6 +128,12 @@
 }
 .nav-action-btn:hover        { background: rgba(255,255,255,0.22); border-color: rgba(255,255,255,0.3); }
 .nav-action-btn:disabled     { opacity: 0.3; cursor: not-allowed; }
+.nav-action-btn.active {
+    background: rgba(255,255,255,0.22);
+    border-color: rgba(255,255,255,0.45);
+    color: #fff;
+    font-weight: 700;
+}
 .nav-verify-btn              { background: rgba(62,207,142,0.2); border-color: rgba(62,207,142,0.35); }
 .nav-verify-btn:hover        { background: rgba(62,207,142,0.35); }
 
@@ -146,7 +152,7 @@
 /* ── SF1.3 Ask panel ── */
 #step-nav-ask-panel {
     flex-direction: column; gap: 6px;
-    border-top: 1px solid rgba(255,255,255,0.12); padding-top: 8px; margin-top: 4px;
+    border-top: 2px solid rgba(255,255,255,0.35); padding-top: 8px; margin-top: 4px;
 }
 #step-nav-ask-thread {
     max-height: 120px; overflow-y: auto; display: flex; flex-direction: column; gap: 5px;
@@ -183,7 +189,7 @@
 /* ── SF2.1 Edit panel ── */
 #step-nav-edit-panel {
     flex-direction: column; gap: 7px;
-    border-top: 1px solid rgba(255,255,255,0.12); padding-top: 8px; margin-top: 4px;
+    border-top: 2px solid rgba(255,255,255,0.35); padding-top: 8px; margin-top: 4px;
 }
 #step-nav-edit-feedback {
     width: 100%; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.18);

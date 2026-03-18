@@ -55,6 +55,7 @@ const StepNavigator = (() => {
     let _askHistory     = [];
     let _activePanel    = null;  // 'ask' | 'edit' | 'rubric' | null
     let _gateCallback   = null;  // one-shot: fires on the next → click
+    let _lastNodeId     = null;  // detect step changes to close panels
 
     // ── Init ──────────────────────────────────────────────────────────────────
 
@@ -86,6 +87,7 @@ const StepNavigator = (() => {
         _activePanel    = null;
         _gateCallback   = null;
         _dismissed      = false;
+        _lastNodeId     = null;
         _closePanel();
         _render();
     }
@@ -214,6 +216,12 @@ const StepNavigator = (() => {
     function _renderCard() {
         const chain = DagRunner.getChain(_chainId);
         if (!chain) return;
+
+        // Close open panel whenever the user moves to a different step
+        if (chain.currentNodeId !== _lastNodeId) {
+            _closePanel();
+            _lastNodeId = chain.currentNodeId;
+        }
 
         const seg   = _currentSegment(chain);   // segment that PRODUCED this state
         const next  = _nextSegment(chain);       // segment ABOUT to run (for running badge)
@@ -412,6 +420,8 @@ const StepNavigator = (() => {
         _askPanel.style.display  = name === 'ask'  ? 'flex' : 'none';
         _editPanel.style.display = name === 'edit' ? 'flex' : 'none';
         RubricManager.showPanel(name === 'rubric');
+        _btnAsk.classList.toggle('active',  name === 'ask');
+        _btnEdit.classList.toggle('active', name === 'edit');
         if (name === 'edit') _populateEditPanel();
     }
 
@@ -420,6 +430,8 @@ const StepNavigator = (() => {
         _askPanel.style.display  = 'none';
         _editPanel.style.display = 'none';
         RubricManager.showPanel(false);
+        _btnAsk.classList.remove('active');
+        _btnEdit.classList.remove('active');
     }
 
     // ── Ask panel ─────────────────────────────────────────────────────────────
@@ -475,11 +487,10 @@ const StepNavigator = (() => {
 
     // ── Edit panel ────────────────────────────────────────────────────────────
 
-    /** Populate suggestion chips and parameter inputs for the current segment. */
+    /** Populate suggestion chips and parameter inputs for the displayed segment. */
     function _populateEditPanel() {
         const chain = DagRunner.getChain(_chainId);
-        const atLeaf = DagStore.edgesFrom(chain.currentNodeId).length === 0;
-        const seg = atLeaf ? _currentSegment(chain) : _nextSegment(chain);
+        const seg = _displayedSeg(chain);
 
         // ── Suggestion chips ───────────────────────────────────────────────
         _editChips.innerHTML = '';
@@ -606,18 +617,12 @@ const StepNavigator = (() => {
         const msg = _editFeedback.value.trim();
         if (!msg) return;
 
-        const chain = DagRunner.getChain(_chainId);
-        const atLeaf = DagStore.edgesFrom(chain.currentNodeId).length === 0;
-
-        // At a leaf node there is no outgoing (next) step to edit.
-        // Instead we edit the LAST APPLIED step — the incoming edge —
-        // and fork from that edge's source node (one step back).
+        const chain   = DagRunner.getChain(_chainId);
+        const atLeaf  = DagStore.edgesFrom(chain.currentNodeId).length === 0;
+        const seg     = _displayedSeg(chain);
         const fromIdx = atLeaf
             ? Math.max(0, _currentIndex(chain) - 1)
             : _currentIndex(chain);
-        const seg = atLeaf
-            ? _currentSegment(chain)      // the last applied step
-            : _nextSegment(chain);        // the upcoming step
         const remaining = chain.segments.slice(fromIdx + 1);
 
         _editSend.disabled    = true;
@@ -701,6 +706,14 @@ const StepNavigator = (() => {
         const mainEdgeSet = new Set(chain.edgeIds);
         if (!outgoing.length) return null;
         return (outgoing.find(e => mainEdgeSet.has(e.id)) || outgoing[0]).segment || null;
+    }
+
+    /**
+     * The segment the user is currently looking at — always _currentSegment
+     * (the last applied step). This is what Edit and Ask should target.
+     */
+    function _displayedSeg(chain) {
+        return _currentSegment(chain) || _nextSegment(chain);
     }
 
     /** 0-based index of currentNodeId in the chain's nodeIds list. */
