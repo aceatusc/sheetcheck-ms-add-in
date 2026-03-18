@@ -41,6 +41,8 @@ const StepNavigator = (() => {
     const _askThread    = document.getElementById('step-nav-ask-thread');
     const _askChips     = document.getElementById('step-nav-ask-chips');
     const _editPanel    = document.getElementById('step-nav-edit-panel');
+    const _editParams   = document.getElementById('step-nav-edit-params');
+    const _editChips    = document.getElementById('step-nav-edit-chips');
     const _editFeedback = document.getElementById('step-nav-edit-feedback');
     const _editSend     = document.getElementById('step-nav-edit-send');
     const _qaList       = document.getElementById('step-nav-qa-list');
@@ -53,6 +55,7 @@ const StepNavigator = (() => {
     let _askHistory     = [];
     let _activePanel    = null;  // 'ask' | 'edit' | 'rubric' | null
     let _gateCallback   = null;  // one-shot: fires on the next → click
+    let _lastNodeId     = null;  // detect step changes to close panels
 
     // ── Init ──────────────────────────────────────────────────────────────────
 
@@ -84,6 +87,7 @@ const StepNavigator = (() => {
         _activePanel    = null;
         _gateCallback   = null;
         _dismissed      = false;
+        _lastNodeId     = null;
         _closePanel();
         _render();
     }
@@ -212,6 +216,12 @@ const StepNavigator = (() => {
     function _renderCard() {
         const chain = DagRunner.getChain(_chainId);
         if (!chain) return;
+
+        // Close open panel whenever the user moves to a different step
+        if (chain.currentNodeId !== _lastNodeId) {
+            _closePanel();
+            _lastNodeId = chain.currentNodeId;
+        }
 
         const seg   = _currentSegment(chain);   // segment that PRODUCED this state
         const next  = _nextSegment(chain);       // segment ABOUT to run (for running badge)
@@ -410,6 +420,9 @@ const StepNavigator = (() => {
         _askPanel.style.display  = name === 'ask'  ? 'flex' : 'none';
         _editPanel.style.display = name === 'edit' ? 'flex' : 'none';
         RubricManager.showPanel(name === 'rubric');
+        _btnAsk.classList.toggle('active',  name === 'ask');
+        _btnEdit.classList.toggle('active', name === 'edit');
+        if (name === 'edit') _populateEditPanel();
     }
 
     function _closePanel() {
@@ -417,13 +430,19 @@ const StepNavigator = (() => {
         _askPanel.style.display  = 'none';
         _editPanel.style.display = 'none';
         RubricManager.showPanel(false);
+        _btnAsk.classList.remove('active');
+        _btnEdit.classList.remove('active');
     }
 
     // ── Ask panel ─────────────────────────────────────────────────────────────
 
     async function _onAskSend() {
         const msg = _askInput.value.trim();
-        if (!msg) return;
+        const chain0 = DagRunner.getChain(_chainId);
+        const atLeaf0 = DagStore.edgesFrom(chain0.currentNodeId).length === 0;
+        const seg0 = atLeaf0 ? _currentSegment(chain0) : _nextSegment(chain0);
+        const hasParamChange = !!_collectParamChanges(seg0);
+        if (!msg && !hasParamChange) return;
         _askInput.value    = '';
         _askInput.disabled = true;
         _askSend.disabled  = true;
@@ -468,22 +487,173 @@ const StepNavigator = (() => {
 
     // ── Edit panel ────────────────────────────────────────────────────────────
 
+    /** Populate suggestion chips and parameter inputs for the displayed segment. */
+    function _populateEditPanel() {
+        const chain = DagRunner.getChain(_chainId);
+        const seg = _displayedSeg(chain);
+
+        // ── Suggestion chips ───────────────────────────────────────────────
+        _editChips.innerHTML = '';
+        (seg?.edit_suggestions || []).forEach(suggestion => {
+            const btn = document.createElement('button');
+            btn.className   = 'edit-chip';
+            btn.textContent = suggestion;
+            btn.onclick     = () => { _editFeedback.value = suggestion; _editFeedback.focus(); };
+            _editChips.appendChild(btn);
+        });
+
+        // ── Parameter controls ─────────────────────────────────────────────
+        _editParams.innerHTML = '';
+        const params = seg?.parameters || [];
+        if (!params.length) return;
+
+        const grid = document.createElement('div');
+        grid.className = 'edit-params-grid';
+        params.forEach((p, i) => {
+            const row = document.createElement('div');
+            row.className = 'edit-param-row';
+
+            const lbl = document.createElement('label');
+            lbl.className   = 'edit-param-label';
+            lbl.textContent = p.label;
+
+            let ctrl;
+            if (p.type === 'select') {
+                ctrl = document.createElement('select');
+                ctrl.className = 'edit-param-select';
+                (p.options || [p.value]).forEach(opt => {
+                    const o = document.createElement('option');
+                    o.value = opt; o.textContent = opt;
+                    if (opt === String(p.value)) o.selected = true;
+                    ctrl.appendChild(o);
+                });
+                ctrl.addEventListener('change', () => _applyParam(seg, i, ctrl.value, ctrl));
+            } else if (p.type === 'color') {
+                // Pair: color swatch picker + text input for hex
+                const wrap = document.createElement('div');
+                wrap.className = 'edit-param-color-wrap';
+
+                const swatch = document.createElement('input');
+                swatch.type  = 'color';
+                swatch.value = p.value;
+                swatch.className = 'edit-param-swatch';
+
+                const hex = document.createElement('input');
+                hex.type      = 'text';
+                hex.value     = p.value;
+                hex.className = 'edit-param-input';
+                hex.style.width = '68px';
+
+                swatch.addEventListener('input', () => {
+                    hex.value = swatch.value;
+                    _applyParam(seg, i, swatch.value, hex);
+                });
+                hex.addEventListener('input', () => {
+                    if (/^#[0-9a-fA-F]{6}$/.test(hex.value)) {
+                        swatch.value = hex.value;
+                        _applyParam(seg, i, hex.value, hex);
+                    }
+                });
+
+                wrap.appendChild(swatch);
+                wrap.appendChild(hex);
+                ctrl = wrap;
+            } else {
+                ctrl = document.createElement('input');
+                ctrl.className   = 'edit-param-input';
+                ctrl.type        = p.type === 'number' ? 'number' : 'text';
+                ctrl.value       = p.value;
+                ctrl.addEventListener('input', () => _applyParam(seg, i, ctrl.value, ctrl));
+            }
+            if (ctrl.dataset !== undefined) {
+                ctrl.dataset.key = p.key;
+                ctrl.dataset.idx = i;
+            }
+
+            row.appendChild(lbl);
+            row.appendChild(ctrl);
+            grid.appendChild(row);
+        });
+        _editParams.appendChild(grid);
+    }
+
+    /** Collect current parameter input values and build an auto-message prefix. */
+    function _collectParamChanges(seg) {
+        const params = seg?.parameters || [];
+        if (!params.length) return '';
+        const changes = [];
+        params.forEach(p => {
+            const inp = _editParams.querySelector(`[data-key="${p.key}"]`);
+            if (!inp) return;
+            const newVal = p.type === 'number' ? Number(inp.value) : inp.value;
+            if (String(newVal) !== String(p.value)) {
+                changes.push(`set ${p.label} to ${newVal}`);
+            }
+        });
+        return changes.length ? changes.join(', ') + '. ' : '';
+    }
+
+    /**
+     * Patch a single parameter value directly into seg.code and re-run it.
+     * No LLM call — instant. Updates seg.parameters[idx].value so subsequent
+     * opens of the Edit panel show the new value.
+     */
+    async function _applyParam(seg, idx, rawValue, btn) {
+        if (!seg?.code) return;
+        const p      = seg.parameters[idx];
+        const oldVal = p.value;
+        const newVal = p.type === 'number' ? Number(rawValue) : String(rawValue);
+        if (String(newVal) === String(oldVal)) return;  // no change
+
+        try {
+            // Patch: replace the old literal with the new one in the code string.
+            // Numbers: match the bare number; text/colors: match the quoted string.
+            let patchedCode;
+            if (p.type === 'number') {
+                // Replace exact number literal (whole-word boundary)
+                patchedCode = seg.code.replace(
+                    new RegExp(`(?<![\d.])${_escapeRegex(String(oldVal))}(?![\d.])`, 'g'),
+                    String(newVal)
+                );
+            } else {
+                // Replace quoted string literal — try both quote styles
+                const esc = _escapeRegex(String(oldVal));
+                patchedCode = seg.code
+                    .replace(new RegExp('"'  + esc + '"',  'g'), '"'  + newVal + '"')
+                    .replace(new RegExp("'"  + esc + "'",  'g'), "'"  + newVal + "'");
+            }
+
+            // Run the patched code
+            const fn = new (Object.getPrototypeOf(async function(){}).constructor)(patchedCode);
+            await fn();
+
+            // Persist the patch into the segment so it's used from now on
+            seg.code          = patchedCode;
+            seg.parameters[idx].value = newVal;
+
+            inp.style.borderColor = 'rgba(62,207,142,0.8)';
+            setTimeout(() => { inp.style.borderColor = ''; }, 800);
+            ExecutionEngine.log('ok', `✓ Param "${p.label}" → ${newVal}`);
+        } catch (err) {
+            inp.style.borderColor = 'rgba(245,100,60,0.8)';
+            setTimeout(() => { inp.style.borderColor = ''; }, 800);
+        } finally {}
+    }
+
+    function _escapeRegex(str) {
+        return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    }
+
     async function _onEditSend() {
         const msg = _editFeedback.value.trim();
         if (!msg) return;
 
-        const chain = DagRunner.getChain(_chainId);
-        const atLeaf = DagStore.edgesFrom(chain.currentNodeId).length === 0;
-
-        // At a leaf node there is no outgoing (next) step to edit.
-        // Instead we edit the LAST APPLIED step — the incoming edge —
-        // and fork from that edge's source node (one step back).
+        const chain   = DagRunner.getChain(_chainId);
+        const atLeaf  = DagStore.edgesFrom(chain.currentNodeId).length === 0;
+        const seg     = _displayedSeg(chain);
         const fromIdx = atLeaf
             ? Math.max(0, _currentIndex(chain) - 1)
             : _currentIndex(chain);
-        const seg = atLeaf
-            ? _currentSegment(chain)      // the last applied step
-            : _nextSegment(chain);        // the upcoming step
         const remaining = chain.segments.slice(fromIdx + 1);
 
         _editSend.disabled    = true;
@@ -491,8 +661,10 @@ const StepNavigator = (() => {
         _editSend.classList.add('loading');
 
         try {
+            const paramPrefix = _collectParamChanges(seg);
+            const fullMsg  = paramPrefix + (msg || 'Apply the parameter changes above.');
             const wsCtx    = await WorksheetContext.gather(['sheet']);
-            const newChain = await LLMClient.edit(msg, wsCtx, seg, remaining);
+            const newChain = await LLMClient.edit(fullMsg, wsCtx, seg, remaining);
             _editFeedback.value = '';
 
             DagRunner.applyEdit(_chainId, fromIdx, chain.taskLabel, newChain);
@@ -565,6 +737,14 @@ const StepNavigator = (() => {
         const mainEdgeSet = new Set(chain.edgeIds);
         if (!outgoing.length) return null;
         return (outgoing.find(e => mainEdgeSet.has(e.id)) || outgoing[0]).segment || null;
+    }
+
+    /**
+     * The segment the user is currently looking at — always _currentSegment
+     * (the last applied step). This is what Edit and Ask should target.
+     */
+    function _displayedSeg(chain) {
+        return _currentSegment(chain) || _nextSegment(chain);
     }
 
     /** 0-based index of currentNodeId in the chain's nodeIds list. */
