@@ -242,15 +242,8 @@
     transition: border-color 0.15s;
 }
 .edit-param-input:focus { border-color: var(--color-accent); }
-.edit-param-apply {
-    width: 22px; height: 22px; flex-shrink: 0;
-    background: rgba(62,207,142,0.2); border: 1px solid rgba(62,207,142,0.4);
-    border-radius: 4px; color: #3ecf8e; font-size: 9px; cursor: pointer;
-    display: flex; align-items: center; justify-content: center;
-    transition: background 0.15s;
-}
-.edit-param-apply:hover    { background: rgba(62,207,142,0.35); }
-.edit-param-apply:disabled { opacity: 0.4; cursor: not-allowed; }
+.edit-param-input { transition: border-color 0.3s, opacity 0.15s; }
+
 
 /* ── Rubric gate: hide step-specific content ── */
 #step-navigator.rubric-gate #step-nav-graph,

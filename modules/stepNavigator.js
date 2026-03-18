@@ -524,16 +524,11 @@ const StepNavigator = (() => {
             inp.dataset.key = p.key;
             inp.dataset.idx = i;
 
-            // Apply button — patches the code and re-runs without LLM
-            const applyBtn = document.createElement('button');
-            applyBtn.className   = 'edit-param-apply';
-            applyBtn.textContent = '▶';
-            applyBtn.title       = 'Apply this value instantly';
-            applyBtn.onclick     = () => _applyParam(seg, i, inp.value, applyBtn);
+            // Apply on every change — no button needed
+            inp.addEventListener('input', () => _applyParam(seg, i, inp.value, inp));
 
             row.appendChild(lbl);
             row.appendChild(inp);
-            row.appendChild(applyBtn);
             grid.appendChild(row);
         });
         _editParams.appendChild(grid);
@@ -567,8 +562,7 @@ const StepNavigator = (() => {
         const newVal = p.type === 'number' ? Number(rawValue) : String(rawValue);
         if (String(newVal) === String(oldVal)) return;  // no change
 
-        btn.disabled    = true;
-        btn.textContent = '…';
+        btn.style.opacity = '0.5';
 
         try {
             // Patch: replace the old literal with the new one in the code string.
@@ -596,16 +590,16 @@ const StepNavigator = (() => {
             seg.code          = patchedCode;
             seg.parameters[idx].value = newVal;
 
-            btn.textContent = '✓';
+            inp.style.opacity = '1';
+            inp.style.borderColor = 'rgba(62,207,142,0.8)';
+            setTimeout(() => { inp.style.borderColor = ''; }, 800);
             ExecutionEngine.log('ok', `✓ Param "${p.label}" → ${newVal}`);
         } catch (err) {
-            btn.textContent = '✗';
-            ExecutionEngine.log('err', `✗ Param apply failed: ${err.message}`);
+            inp.style.opacity = '1';
+            inp.style.borderColor = 'rgba(245,100,60,0.8)';
+            setTimeout(() => { inp.style.borderColor = ''; }, 800);
         } finally {
-            setTimeout(() => {
-                btn.disabled    = false;
-                btn.textContent = '▶';
-            }, 1200);
+            inp.style.opacity = '1';
         }
     }
 
