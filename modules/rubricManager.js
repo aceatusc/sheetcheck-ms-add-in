@@ -170,8 +170,9 @@ const RubricManager = (() => {
             });
 
             const total = res.results?.length || 0;
+            // ? `${metCount} of ${total} requirement${total !== 1 ? 's' : ''} met`
             _desc.textContent = total
-                ? `${metCount} of ${total} requirement${total !== 1 ? 's' : ''} met`
+                ? `${metCount} met`
                 : 'No requirements to verify.';
 
         } catch (err) {
