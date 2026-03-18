@@ -243,6 +243,20 @@
 }
 .edit-param-input:focus { border-color: var(--color-accent); }
 .edit-param-input { transition: border-color 0.3s, opacity 0.15s; }
+.edit-param-select {
+    background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.18);
+    border-radius: 5px; color: #fff; font-size: 11px; padding: 3px 5px;
+    outline: none; cursor: pointer; transition: border-color 0.15s;
+    max-width: 100px;
+}
+.edit-param-select:focus { border-color: var(--color-accent); }
+.edit-param-color-wrap { display: flex; align-items: center; gap: 4px; }
+.edit-param-swatch {
+    width: 22px; height: 22px; padding: 0; border: 1px solid rgba(255,255,255,0.25);
+    border-radius: 4px; cursor: pointer; background: none; flex-shrink: 0;
+}
+.edit-param-swatch::-webkit-color-swatch-wrapper { padding: 1px; }
+.edit-param-swatch::-webkit-color-swatch { border-radius: 3px; border: none; }
 
 
 /* ── Rubric gate: hide step-specific content ── */

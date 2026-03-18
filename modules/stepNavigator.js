@@ -517,18 +517,61 @@ const StepNavigator = (() => {
             lbl.className   = 'edit-param-label';
             lbl.textContent = p.label;
 
-            const inp = document.createElement('input');
-            inp.className   = 'edit-param-input';
-            inp.type        = p.type === 'number' ? 'number' : 'text';
-            inp.value       = p.value;
-            inp.dataset.key = p.key;
-            inp.dataset.idx = i;
+            let ctrl;
+            if (p.type === 'select') {
+                ctrl = document.createElement('select');
+                ctrl.className = 'edit-param-select';
+                (p.options || [p.value]).forEach(opt => {
+                    const o = document.createElement('option');
+                    o.value = opt; o.textContent = opt;
+                    if (opt === String(p.value)) o.selected = true;
+                    ctrl.appendChild(o);
+                });
+                ctrl.addEventListener('change', () => _applyParam(seg, i, ctrl.value, ctrl));
+            } else if (p.type === 'color') {
+                // Pair: color swatch picker + text input for hex
+                const wrap = document.createElement('div');
+                wrap.className = 'edit-param-color-wrap';
 
-            // Apply on every change — no button needed
-            inp.addEventListener('input', () => _applyParam(seg, i, inp.value, inp));
+                const swatch = document.createElement('input');
+                swatch.type  = 'color';
+                swatch.value = p.value;
+                swatch.className = 'edit-param-swatch';
+
+                const hex = document.createElement('input');
+                hex.type      = 'text';
+                hex.value     = p.value;
+                hex.className = 'edit-param-input';
+                hex.style.width = '68px';
+
+                swatch.addEventListener('input', () => {
+                    hex.value = swatch.value;
+                    _applyParam(seg, i, swatch.value, hex);
+                });
+                hex.addEventListener('input', () => {
+                    if (/^#[0-9a-fA-F]{6}$/.test(hex.value)) {
+                        swatch.value = hex.value;
+                        _applyParam(seg, i, hex.value, hex);
+                    }
+                });
+
+                wrap.appendChild(swatch);
+                wrap.appendChild(hex);
+                ctrl = wrap;
+            } else {
+                ctrl = document.createElement('input');
+                ctrl.className   = 'edit-param-input';
+                ctrl.type        = p.type === 'number' ? 'number' : 'text';
+                ctrl.value       = p.value;
+                ctrl.addEventListener('input', () => _applyParam(seg, i, ctrl.value, ctrl));
+            }
+            if (ctrl.dataset !== undefined) {
+                ctrl.dataset.key = p.key;
+                ctrl.dataset.idx = i;
+            }
 
             row.appendChild(lbl);
-            row.appendChild(inp);
+            row.appendChild(ctrl);
             grid.appendChild(row);
         });
         _editParams.appendChild(grid);
