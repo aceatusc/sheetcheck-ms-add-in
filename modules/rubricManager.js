@@ -76,7 +76,7 @@ const RubricManager = (() => {
         showPanel(true);
         _render();
 
-        _btnNext.textContent = 'Start →';
+        _btnNext.textContent = '→';
         _btnNext.disabled    = false;
         _badge.textContent   = 'Review Requirements';
         _counter.textContent = '';
@@ -170,8 +170,9 @@ const RubricManager = (() => {
             });
 
             const total = res.results?.length || 0;
+            // ? `${metCount} of ${total} requirement${total !== 1 ? 's' : ''} met`
             _desc.textContent = total
-                ? `${metCount} of ${total} requirement${total !== 1 ? 's' : ''} met`
+                ? `${metCount} requirement(s) met`
                 : 'No requirements to verify.';
 
         } catch (err) {
@@ -180,7 +181,7 @@ const RubricManager = (() => {
             _desc.textContent = 'Could not verify requirements.';
         }
 
-        _btnNext.textContent = 'Done ✓';
+        _btnNext.textContent = '✓';
         _btnNext.disabled    = false;
 
         return new Promise(resolve => {

@@ -21,7 +21,26 @@
     </div>
     <div id="message-feed">
         <div class="message agent" id="welcome-message">
-            <div class="message-bubble">👋 Hi! I can help you modify your spreadsheet. Try describing a change you'd like to make or something you want to build from scratch.</div>
+            <div class="message-bubble">
+                👋 Hi! Describe a change you'd like or try one of these demos:
+                <div class="demo-grid">
+                    <button class="demo-btn" data-stub="pnl" data-label="P&amp;L Dashboard">
+                        <span class="demo-icon">📊</span>
+                        <span class="demo-label">P&amp;L Dashboard</span>
+                        <span class="demo-desc">Revenue, expenses &amp; profit with growth % and colour coding</span>
+                    </button>
+                    <button class="demo-btn" data-stub="sales" data-label="Tax Filing Summary">
+                        <span class="demo-icon">🧾</span>
+                        <span class="demo-label">Tax Filing</span>
+                        <span class="demo-desc">Income sources, brackets, ROUND formulas, withholding status &amp; effective rate</span>
+                    </button>
+                    <!-- <button class="demo-btn" data-stub="inventory" data-label="Inventory Summary">
+                        <span class="demo-icon">📦</span>
+                        <span class="demo-label">Inventory Summary</span>
+                        <span class="demo-desc">Stock levels with low-stock alerts and value calculations</span>
+                    </button> -->
+                </div>
+            </div>
             <span class="message-meta">Assistant</span>
         </div>
         <div id="typing-indicator">

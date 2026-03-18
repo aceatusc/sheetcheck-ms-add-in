@@ -267,7 +267,8 @@ const StepNavigator = (() => {
         }
 
         // Counter: shows which node we're on. Root = 0/N (before step 1).
-        _counter.textContent = `${idx}/${total}`;
+        _counter.textContent = `${idx}`;
+        // _counter.textContent = `${idx}/${total}`;
 
         // Q&A from the incoming segment (what was just applied)
         _qaList.innerHTML = '';
