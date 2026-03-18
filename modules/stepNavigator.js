@@ -41,6 +41,8 @@ const StepNavigator = (() => {
     const _askThread    = document.getElementById('step-nav-ask-thread');
     const _askChips     = document.getElementById('step-nav-ask-chips');
     const _editPanel    = document.getElementById('step-nav-edit-panel');
+    const _editParams   = document.getElementById('step-nav-edit-params');
+    const _editChips    = document.getElementById('step-nav-edit-chips');
     const _editFeedback = document.getElementById('step-nav-edit-feedback');
     const _editSend     = document.getElementById('step-nav-edit-send');
     const _qaList       = document.getElementById('step-nav-qa-list');
@@ -410,6 +412,7 @@ const StepNavigator = (() => {
         _askPanel.style.display  = name === 'ask'  ? 'flex' : 'none';
         _editPanel.style.display = name === 'edit' ? 'flex' : 'none';
         RubricManager.showPanel(name === 'rubric');
+        if (name === 'edit') _populateEditPanel();
     }
 
     function _closePanel() {
@@ -423,7 +426,11 @@ const StepNavigator = (() => {
 
     async function _onAskSend() {
         const msg = _askInput.value.trim();
-        if (!msg) return;
+        const chain0 = DagRunner.getChain(_chainId);
+        const atLeaf0 = DagStore.edgesFrom(chain0.currentNodeId).length === 0;
+        const seg0 = atLeaf0 ? _currentSegment(chain0) : _nextSegment(chain0);
+        const hasParamChange = !!_collectParamChanges(seg0);
+        if (!msg && !hasParamChange) return;
         _askInput.value    = '';
         _askInput.disabled = true;
         _askSend.disabled  = true;
@@ -468,6 +475,133 @@ const StepNavigator = (() => {
 
     // ── Edit panel ────────────────────────────────────────────────────────────
 
+    /** Populate suggestion chips and parameter inputs for the current segment. */
+    function _populateEditPanel() {
+        const chain = DagRunner.getChain(_chainId);
+        const atLeaf = DagStore.edgesFrom(chain.currentNodeId).length === 0;
+        const seg = atLeaf ? _currentSegment(chain) : _nextSegment(chain);
+
+        // ── Suggestion chips ───────────────────────────────────────────────
+        _editChips.innerHTML = '';
+        (seg?.edit_suggestions || []).forEach(suggestion => {
+            const btn = document.createElement('button');
+            btn.className   = 'edit-chip';
+            btn.textContent = suggestion;
+            btn.onclick     = () => { _editFeedback.value = suggestion; _editFeedback.focus(); };
+            _editChips.appendChild(btn);
+        });
+
+        // ── Parameter controls ─────────────────────────────────────────────
+        _editParams.innerHTML = '';
+        const params = seg?.parameters || [];
+        if (!params.length) return;
+
+        const grid = document.createElement('div');
+        grid.className = 'edit-params-grid';
+        params.forEach((p, i) => {
+            const row = document.createElement('div');
+            row.className = 'edit-param-row';
+
+            const lbl = document.createElement('label');
+            lbl.className   = 'edit-param-label';
+            lbl.textContent = p.label;
+
+            const inp = document.createElement('input');
+            inp.className   = 'edit-param-input';
+            inp.type        = p.type === 'number' ? 'number' : 'text';
+            inp.value       = p.value;
+            inp.dataset.key = p.key;
+            inp.dataset.idx = i;
+
+            // Apply button — patches the code and re-runs without LLM
+            const applyBtn = document.createElement('button');
+            applyBtn.className   = 'edit-param-apply';
+            applyBtn.textContent = '▶';
+            applyBtn.title       = 'Apply this value instantly';
+            applyBtn.onclick     = () => _applyParam(seg, i, inp.value, applyBtn);
+
+            row.appendChild(lbl);
+            row.appendChild(inp);
+            row.appendChild(applyBtn);
+            grid.appendChild(row);
+        });
+        _editParams.appendChild(grid);
+    }
+
+    /** Collect current parameter input values and build an auto-message prefix. */
+    function _collectParamChanges(seg) {
+        const params = seg?.parameters || [];
+        if (!params.length) return '';
+        const changes = [];
+        params.forEach(p => {
+            const inp = _editParams.querySelector(`[data-key="${p.key}"]`);
+            if (!inp) return;
+            const newVal = p.type === 'number' ? Number(inp.value) : inp.value;
+            if (String(newVal) !== String(p.value)) {
+                changes.push(`set ${p.label} to ${newVal}`);
+            }
+        });
+        return changes.length ? changes.join(', ') + '. ' : '';
+    }
+
+    /**
+     * Patch a single parameter value directly into seg.code and re-run it.
+     * No LLM call — instant. Updates seg.parameters[idx].value so subsequent
+     * opens of the Edit panel show the new value.
+     */
+    async function _applyParam(seg, idx, rawValue, btn) {
+        if (!seg?.code) return;
+        const p      = seg.parameters[idx];
+        const oldVal = p.value;
+        const newVal = p.type === 'number' ? Number(rawValue) : String(rawValue);
+        if (String(newVal) === String(oldVal)) return;  // no change
+
+        btn.disabled    = true;
+        btn.textContent = '…';
+
+        try {
+            // Patch: replace the old literal with the new one in the code string.
+            // Numbers: match the bare number; text/colors: match the quoted string.
+            let patchedCode;
+            if (p.type === 'number') {
+                // Replace exact number literal (whole-word boundary)
+                patchedCode = seg.code.replace(
+                    new RegExp(`(?<![\d.])${_escapeRegex(String(oldVal))}(?![\d.])`, 'g'),
+                    String(newVal)
+                );
+            } else {
+                // Replace quoted string literal — try both quote styles
+                const esc = _escapeRegex(String(oldVal));
+                patchedCode = seg.code
+                    .replace(new RegExp('"'  + esc + '"',  'g'), '"'  + newVal + '"')
+                    .replace(new RegExp("'"  + esc + "'",  'g'), "'"  + newVal + "'");
+            }
+
+            // Run the patched code
+            const fn = new (Object.getPrototypeOf(async function(){}).constructor)(patchedCode);
+            await fn();
+
+            // Persist the patch into the segment so it's used from now on
+            seg.code          = patchedCode;
+            seg.parameters[idx].value = newVal;
+
+            btn.textContent = '✓';
+            ExecutionEngine.log('ok', `✓ Param "${p.label}" → ${newVal}`);
+        } catch (err) {
+            btn.textContent = '✗';
+            ExecutionEngine.log('err', `✗ Param apply failed: ${err.message}`);
+        } finally {
+            setTimeout(() => {
+                btn.disabled    = false;
+                btn.textContent = '▶';
+            }, 1200);
+        }
+    }
+
+    function _escapeRegex(str) {
+        return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    }
+
     async function _onEditSend() {
         const msg = _editFeedback.value.trim();
         if (!msg) return;
@@ -491,8 +625,10 @@ const StepNavigator = (() => {
         _editSend.classList.add('loading');
 
         try {
+            const paramPrefix = _collectParamChanges(seg);
+            const fullMsg  = paramPrefix + (msg || 'Apply the parameter changes above.');
             const wsCtx    = await WorksheetContext.gather(['sheet']);
-            const newChain = await LLMClient.edit(msg, wsCtx, seg, remaining);
+            const newChain = await LLMClient.edit(fullMsg, wsCtx, seg, remaining);
             _editFeedback.value = '';
 
             DagRunner.applyEdit(_chainId, fromIdx, chain.taskLabel, newChain);

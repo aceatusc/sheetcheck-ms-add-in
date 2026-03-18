@@ -212,6 +212,40 @@
     to   { transform: translateX(100%); }
 }
 
+/* ── Edit chips (suggestion prompts) ── */
+#step-nav-edit-chips { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 6px; }
+.edit-chip {
+    background: rgba(255,255,255,0.1); color: rgba(255,255,255,0.85); border: none;
+    border-radius: 99px; font-size: 10px; padding: 3px 9px; cursor: pointer;
+    transition: background 0.15s;
+}
+.edit-chip:hover { background: rgba(255,255,255,0.22); }
+
+/* ── Edit parameter controls ── */
+#step-nav-edit-params { margin-bottom: 6px; }
+.edit-params-grid { display: flex; flex-direction: column; gap: 4px; }
+.edit-param-row { display: flex; align-items: center; gap: 6px; }
+.edit-param-label {
+    font-size: 10.5px; color: rgba(255,255,255,0.65); flex: 1; min-width: 0;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.edit-param-input {
+    width: 80px; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.18);
+    border-radius: 5px; color: #fff; font-size: 11px; padding: 3px 6px;
+    outline: none; font-family: var(--font-mono); text-align: right;
+    transition: border-color 0.15s;
+}
+.edit-param-input:focus { border-color: var(--color-accent); }
+.edit-param-apply {
+    width: 22px; height: 22px; flex-shrink: 0;
+    background: rgba(62,207,142,0.2); border: 1px solid rgba(62,207,142,0.4);
+    border-radius: 4px; color: #3ecf8e; font-size: 9px; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    transition: background 0.15s;
+}
+.edit-param-apply:hover    { background: rgba(62,207,142,0.35); }
+.edit-param-apply:disabled { opacity: 0.4; cursor: not-allowed; }
+
 /* ── Rubric gate: hide step-specific content ── */
 #step-navigator.rubric-gate #step-nav-graph,
 #step-navigator.rubric-gate #step-nav-ranges,
