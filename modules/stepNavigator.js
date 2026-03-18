@@ -472,10 +472,19 @@ const StepNavigator = (() => {
         const msg = _editFeedback.value.trim();
         if (!msg) return;
 
-        const chain          = DagRunner.getChain(_chainId);
-        const fromIdx        = _currentIndex(chain);
-        const seg            = _nextSegment(chain);    // edit the upcoming step
-        const remaining      = chain.segments.slice(fromIdx + 1);
+        const chain = DagRunner.getChain(_chainId);
+        const atLeaf = DagStore.edgesFrom(chain.currentNodeId).length === 0;
+
+        // At a leaf node there is no outgoing (next) step to edit.
+        // Instead we edit the LAST APPLIED step — the incoming edge —
+        // and fork from that edge's source node (one step back).
+        const fromIdx = atLeaf
+            ? Math.max(0, _currentIndex(chain) - 1)
+            : _currentIndex(chain);
+        const seg = atLeaf
+            ? _currentSegment(chain)      // the last applied step
+            : _nextSegment(chain);        // the upcoming step
+        const remaining = chain.segments.slice(fromIdx + 1);
 
         _editSend.disabled    = true;
         _editSend.textContent = '…';
