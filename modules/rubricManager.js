@@ -76,7 +76,7 @@ const RubricManager = (() => {
         showPanel(true);
         _render();
 
-        _btnNext.textContent = 'Start →';
+        _btnNext.textContent = '→';
         _btnNext.disabled    = false;
         _badge.textContent   = 'Review Requirements';
         _counter.textContent = '';
