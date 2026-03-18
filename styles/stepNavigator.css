@@ -197,9 +197,20 @@
     align-self: flex-end; background: var(--color-accent); border: none;
     color: #fff; font-size: 11.5px; font-weight: 600;
     padding: 6px 14px; border-radius: 7px; cursor: pointer; transition: opacity 0.15s;
+    position: relative; overflow: hidden;
 }
 #step-nav-edit-send:hover    { opacity: 0.85; }
 #step-nav-edit-send:disabled { opacity: 0.4; cursor: not-allowed; }
+#step-nav-edit-send.loading  { opacity: 0.75; cursor: wait; }
+#step-nav-edit-send.loading::after {
+    content: ''; position: absolute; inset: 0;
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,0.3), transparent);
+    animation: editShimmer 1s infinite;
+}
+@keyframes editShimmer {
+    from { transform: translateX(-100%); }
+    to   { transform: translateX(100%); }
+}
 
 /* ── Rubric gate: hide step-specific content ── */
 #step-navigator.rubric-gate #step-nav-graph,

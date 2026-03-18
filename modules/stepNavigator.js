@@ -49,6 +49,7 @@ const StepNavigator = (() => {
     let _chainId        = null;
     let _isRunning      = false;
     let _advanceResolve = null;
+    let _dismissed      = false;  // set on dismiss; checked by executionEngine
     let _askHistory     = [];
     let _activePanel    = null;  // 'ask' | 'edit' | 'rubric' | null
     let _gateCallback   = null;  // one-shot: fires on the next → click
@@ -67,6 +68,9 @@ const StepNavigator = (() => {
             if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); _onAskSend(); }
         });
         _editSend.addEventListener('click', _onEditSend);
+        _editFeedback.addEventListener('keydown', e => {
+            if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); _onEditSend(); }
+        });
     }
 
     // ── Load ──────────────────────────────────────────────────────────────────
@@ -79,6 +83,7 @@ const StepNavigator = (() => {
         _askHistory     = [];
         _activePanel    = null;
         _gateCallback   = null;
+        _dismissed      = false;
         _closePanel();
         _render();
     }
@@ -121,9 +126,15 @@ const StepNavigator = (() => {
     }
 
     function dismiss() {
+        _dismissed = true;   // signals executionEngine to stop looping
+        _isRunning = false;
         _overlay.classList.remove('visible', 'running', 'failed', 'rubric-gate', 'verify-gate');
         _chatPanel.classList.remove('nav-active');
         _closePanel();
+        _gateCallback = null;
+        // Resolve the pending promise so awaiting callers unblock,
+        // but executionEngine checks _dismissed before continuing.
+        _resolve();
     }
 
     function _render() { _renderCard(); _renderGraph(); }
@@ -292,9 +303,9 @@ const StepNavigator = (() => {
     const PAD_Y  = 16;
 
     const NODE_STYLE = {
-        current:   { fill: '#ffffff',               stroke: '#ffffff',              strokeW: 2,   r: NODE_R + 1 },
-        visited:   { fill: 'rgba(62,207,142,0.85)', stroke: '#3ecf8e',              strokeW: 1.5, r: NODE_R },
-        unvisited: { fill: 'rgba(255,255,255,0.07)',stroke: 'rgba(255,255,255,0.25)', strokeW: 1, r: NODE_R },
+        current:   { fill: 'rgba(255,255,255,0.18)', stroke: '#ffffff',              strokeW: 2,   r: NODE_R },
+        visited:   { fill: 'rgba(62,207,142,0.85)',  stroke: '#3ecf8e',              strokeW: 1.5, r: NODE_R },
+        unvisited: { fill: 'rgba(255,255,255,0.07)', stroke: 'rgba(255,255,255,0.25)', strokeW: 1, r: NODE_R },
     };
 
     function _px(col) { return PAD_X + col * COL_W; }
@@ -324,8 +335,10 @@ const StepNavigator = (() => {
 
             // Diagonal fork connector for branch edges that change row
             if (e.isBranch && e.fromRow !== e.toRow) {
-                const forkStroke = e.failed   ? '#f5643c'
-                                 : e.executed ? '#3ecf8e'
+                const isActiveFork = e.toId === graph.currentNodeId;
+                const forkStroke = e.failed      ? '#f5643c'
+                                 : isActiveFork  ? '#ffffff'
+                                 : e.executed    ? '#3ecf8e'
                                  : 'rgba(255,255,255,0.22)';
                 const fork = document.createElementNS(SVG_NS, 'line');
                 fork.setAttribute('x1', x1); fork.setAttribute('y1', y1);
@@ -337,10 +350,15 @@ const StepNavigator = (() => {
                 return;
             }
 
-            // Horizontal edge — executed/failed state takes priority over branch styling
+            // Horizontal edge colour priority:
+            //   failed → red | active (leads to current node) → white
+            //   executed → green | branch unexecuted → dim white | main unexecuted → dim blue
+            const isActive = e.toId === graph.currentNodeId;
             let stroke, width, dash;
             if (e.failed) {
                 stroke = '#f5643c'; width = '2.5'; dash = 'none';
+            } else if (isActive) {
+                stroke = '#ffffff'; width = '2.5'; dash = 'none';
             } else if (e.executed) {
                 stroke = '#3ecf8e'; width = '2'; dash = 'none';
             } else if (e.isBranch) {
@@ -363,17 +381,6 @@ const StepNavigator = (() => {
             const x  = _px(n.col);
             const y  = _py(n.row);
             const st = NODE_STYLE[n.state] || NODE_STYLE.unvisited;
-
-            // Outer glow ring for current node
-            if (n.state === 'current') {
-                const glow = document.createElementNS(SVG_NS, 'circle');
-                glow.setAttribute('cx', x);       glow.setAttribute('cy', y);
-                glow.setAttribute('r',  st.r + 5);
-                glow.setAttribute('fill',   'none');
-                glow.setAttribute('stroke', 'rgba(255,255,255,0.15)');
-                glow.setAttribute('stroke-width', '5');
-                svg.appendChild(glow);
-            }
 
             const dot = document.createElementNS(SVG_NS, 'circle');
             dot.setAttribute('cx', x);          dot.setAttribute('cy', y);
@@ -465,13 +472,23 @@ const StepNavigator = (() => {
         const msg = _editFeedback.value.trim();
         if (!msg) return;
 
-        const chain          = DagRunner.getChain(_chainId);
-        const fromIdx        = _currentIndex(chain);
-        const seg            = _nextSegment(chain);    // edit the upcoming step
-        const remaining      = chain.segments.slice(fromIdx + 1);
+        const chain = DagRunner.getChain(_chainId);
+        const atLeaf = DagStore.edgesFrom(chain.currentNodeId).length === 0;
+
+        // At a leaf node there is no outgoing (next) step to edit.
+        // Instead we edit the LAST APPLIED step — the incoming edge —
+        // and fork from that edge's source node (one step back).
+        const fromIdx = atLeaf
+            ? Math.max(0, _currentIndex(chain) - 1)
+            : _currentIndex(chain);
+        const seg = atLeaf
+            ? _currentSegment(chain)      // the last applied step
+            : _nextSegment(chain);        // the upcoming step
+        const remaining = chain.segments.slice(fromIdx + 1);
 
         _editSend.disabled    = true;
         _editSend.textContent = '…';
+        _editSend.classList.add('loading');
 
         try {
             const wsCtx    = await WorksheetContext.gather(['sheet']);
@@ -490,6 +507,7 @@ const StepNavigator = (() => {
             _editSend.textContent = '⚠ Error';
             ExecutionEngine.log('err', `✗ Edit LLM error: ${err.message}`);
         } finally {
+            _editSend.classList.remove('loading');
             setTimeout(() => {
                 _editSend.textContent = 'Apply Edit';
                 _editSend.disabled    = false;
@@ -555,5 +573,5 @@ const StepNavigator = (() => {
         return Math.max(0, chain.nodeIds.indexOf(chain.currentNodeId));
     }
 
-    return { init, load, markRunning, markFailed, waitForNext, dismiss, refreshGraph, setGateMode, dismissGate };
+    return { init, load, markRunning, markFailed, waitForNext, dismiss, refreshGraph, setGateMode, dismissGate, isDismissed: () => _dismissed };
 })();
