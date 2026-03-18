@@ -344,6 +344,45 @@
 .rubric-add:hover { background: rgba(255,255,255,0.16); }
 #rubric-verify-results { margin-top: 6px; }
 
+/* ── Verify results: score + compact icon grid ── */
+.verify-score {
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 4px 8px; border-bottom: 1px solid rgba(255,255,255,0.1);
+    margin-bottom: 8px;
+}
+.verify-score-num {
+    font-size: 28px; font-weight: 800; color: #fff; line-height: 1;
+}
+.verify-score-num.all-met  { color: #3ecf8e; }
+.verify-score-num.none-met { color: #f5643c; }
+.verify-score-denom { font-size: 16px; font-weight: 400; color: rgba(255,255,255,0.5); }
+.verify-score-label { font-size: 12px; color: rgba(255,255,255,0.65); }
+
+.verify-group { margin-bottom: 8px; }
+.verify-group-label {
+    font-size: 9px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: 0.1em; color: rgba(255,255,255,0.35);
+    margin-bottom: 5px;
+}
+.verify-icons { display: flex; flex-wrap: wrap; gap: 5px; }
+.verify-dot {
+    width: 26px; height: 26px; border-radius: 6px; border: none;
+    font-size: 12px; font-weight: 700; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    transition: transform 0.1s, opacity 0.15s;
+}
+.verify-dot:hover { transform: scale(1.15); }
+.verify-dot.met   { background: rgba(62,207,142,0.2); color: #3ecf8e; border: 1px solid rgba(62,207,142,0.4); }
+.verify-dot.unmet { background: rgba(245,100,60,0.15); color: #f5a070; border: 1px solid rgba(245,100,60,0.35); }
+
+.verify-tooltip {
+    margin-top: 6px; padding: 7px 9px;
+    background: rgba(0,0,0,0.35); border-radius: 6px;
+    font-size: 10.5px; color: rgba(255,255,255,0.82); line-height: 1.45;
+    border-left: 2px solid rgba(255,255,255,0.2);
+}
+.verify-refs { color: rgba(255,255,255,0.45); font-size: 10px; }
+
 .rubric-detail {
     font-size: 10.5px; color: rgba(255,255,255,0.7);
     padding: 3px 0 2px 20px; line-height: 1.4; display: none;

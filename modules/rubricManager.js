@@ -76,7 +76,7 @@ const RubricManager = (() => {
         showPanel(true);
         _render();
 
-        _btnNext.textContent = '→';
+        _btnNext.textContent = 'Start →';
         _btnNext.disabled    = false;
         _badge.textContent   = 'Review Requirements';
         _counter.textContent = '';
@@ -124,56 +124,82 @@ const RubricManager = (() => {
         try {
             const wsCtx = await WorksheetContext.gather(['sheet']);
             const res   = await LLMClient.rubricVerify(_rubric, wsCtx);
-
-            _verifyEl.innerHTML =
-                '<div class="rubric-section-label" style="margin-top:8px">Verification Results</div>';
+            const results = res.results || [];
 
             const allItems = [
                 ...(_rubric.hard_requirements || []),
                 ...(_rubric.soft_requirements || []),
             ];
-            let metCount = 0;
+            const total    = allItems.length;
+            const metCount = results.filter(r => r.met).length;
+            const allMet   = metCount === total;
 
-            (res.results || []).forEach(r => {
-                const item = allItems.find(x => x.id === r.id);
-                if (!item) return;
-                const type = (_rubric.hard_requirements || []).find(x => x.id === r.id) ? 'hard' : 'soft';
-                if (r.met) metCount++;
+            // ── Score header ────────────────────────────────────────────
+            const scoreEl = document.createElement('div');
+            scoreEl.className = 'verify-score';
+            scoreEl.innerHTML =
+                `<span class="verify-score-num ${allMet ? 'all-met' : metCount === 0 ? 'none-met' : ''}">`
+                + `${metCount}<span class="verify-score-denom">/${total}</span></span>`
+                + `<span class="verify-score-label">${allMet ? 'All requirements met' : 'requirements met'}</span>`;
+            _verifyEl.appendChild(scoreEl);
 
-                const row  = document.createElement('div');
-                row.className = 'rubric-row';
-                const icon = r.met ? `<span class="rubric-check">✓</span>`
-                                   : `<span class="rubric-warn">⚠</span>`;
-                row.innerHTML = `
-                    <span class="rubric-badge rubric-${type}">${type === 'hard' ? 'H' : 'S'}</span>
-                    <span class="rubric-label" style="user-select:none">${item.label}</span>
-                    ${icon}`;
+            // ── Compact icon rows — no labels, just tick/warning + click for detail ─
+            // Group: hard first, then soft
+            ['hard', 'soft'].forEach(type => {
+                const reqs = type === 'hard'
+                    ? (_rubric.hard_requirements || [])
+                    : (_rubric.soft_requirements || []);
+                if (!reqs.length) return;
 
-                const iconEl = row.querySelector('.rubric-check, .rubric-warn');
-                if (iconEl) {
-                    iconEl.style.cursor = 'pointer';
-                    let open = false;
-                    iconEl.addEventListener('click', () => {
-                        open = !open;
-                        let detail = row.querySelector('.rubric-detail');
-                        if (!detail) {
-                            detail = document.createElement('div');
-                            detail.className = 'rubric-detail';
-                            row.appendChild(detail);
+                const groupEl = document.createElement('div');
+                groupEl.className = 'verify-group';
+
+                const groupLbl = document.createElement('div');
+                groupLbl.className = 'verify-group-label';
+                groupLbl.textContent = type === 'hard' ? 'Hard' : 'Soft';
+                groupEl.appendChild(groupLbl);
+
+                const iconsEl = document.createElement('div');
+                iconsEl.className = 'verify-icons';
+
+                reqs.forEach(req => {
+                    const r = results.find(x => x.id === req.id);
+                    const met = r?.met ?? false;
+
+                    const dot = document.createElement('button');
+                    dot.className = `verify-dot ${met ? 'met' : 'unmet'}`;
+                    dot.title     = req.label;
+                    dot.textContent = met ? '✓' : '⚠';
+
+                    // Click to show/hide reasoning inline below the icon row
+                    dot.addEventListener('click', () => {
+                        // Remove any existing tooltip in this group first
+                        const existing = groupEl.querySelector('.verify-tooltip');
+                        if (existing && existing.dataset.id === req.id) {
+                            existing.remove(); return;
                         }
-                        detail.textContent = r.reasoning
-                            + (r.references?.length ? ` (${r.references.join(', ')})` : '');
-                        detail.style.display = open ? 'block' : 'none';
+                        if (existing) existing.remove();
+
+                        const tip = document.createElement('div');
+                        tip.className    = 'verify-tooltip';
+                        tip.dataset.id   = req.id;
+                        tip.innerHTML =
+                            `<strong>${req.label}</strong><br>`
+                            + (r?.reasoning || '—')
+                            + (r?.references?.length ? ` <span class="verify-refs">(${r.references.join(', ')})</span>` : '');
+                        groupEl.appendChild(tip);
                     });
-                }
-                _verifyEl.appendChild(row);
+
+                    iconsEl.appendChild(dot);
+                });
+
+                groupEl.appendChild(iconsEl);
+                _verifyEl.appendChild(groupEl);
             });
 
-            const total = res.results?.length || 0;
-            // ? `${metCount} of ${total} requirement${total !== 1 ? 's' : ''} met`
-            _desc.textContent = total
-                ? `${metCount} requirement(s) met`
-                : 'No requirements to verify.';
+            _desc.textContent = allMet
+                ? 'Spreadsheet meets all requirements.'
+                : `${total - metCount} requirement${total - metCount !== 1 ? 's' : ''} need${total - metCount === 1 ? 's' : ''} attention.`;
 
         } catch (err) {
             _verifyEl.innerHTML =
