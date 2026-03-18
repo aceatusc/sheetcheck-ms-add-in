@@ -35,6 +35,11 @@ const RubricManager = (() => {
     const _softList   = document.getElementById('rubric-soft-list');
     const _addBtn     = document.getElementById('rubric-add-btn');
     const _verifyEl   = document.getElementById('rubric-verify-results');
+    // All static rubric-panel elements hidden during verify results
+    const _staticEls  = () => [
+        ...document.querySelectorAll('#step-nav-rubric .rubric-section-label'),
+        _hardList, _softList, _addBtn,
+    ];
 
     // ── State ─────────────────────────────────────────────────────────────────
     let _rubric        = { hard_requirements: [], soft_requirements: [] };
@@ -117,11 +122,9 @@ const RubricManager = (() => {
         _btnNext.textContent = '…';
         _btnNext.disabled    = true;
 
-        // Show the rubric panel area but clear its editable list — we'll
-        // draw read-only result rows into _verifyEl instead
+        // Show the rubric panel, hide the editable gate elements
         showPanel(true);
-        _hardList.innerHTML  = '';
-        _softList.innerHTML  = '';
+        _staticEls().forEach(el => { if (el) el.style.display = 'none'; });
         _verifyEl.innerHTML  = '<span class="verify-loading">Verifying requirements…</span>';
 
         try {
@@ -223,6 +226,7 @@ const RubricManager = (() => {
             _advanceResolve = resolve;
             StepNavigator.setGateMode(() => {
                 if (_advanceResolve) { const r = _advanceResolve; _advanceResolve = null; r(); }
+                _staticEls().forEach(el => { if (el) el.style.display = ''; });
                 StepNavigator.dismissGate('verify');
                 showPanel(false);
             });
