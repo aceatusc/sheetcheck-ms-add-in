@@ -65,9 +65,11 @@ const ChatManager = (() => {
             // Wait for user to click Start in the gate
             await RubricManager.waitForGate();
 
-            // 3. Generate code segments (no rubric passed — server no longer needs it)
+            // 3. Generate code — pass the finalised rubric so the LLM knows
+            //    which requirements are hard (must satisfy) vs soft (nice to have)
             _showTyping(true, 'Generating a solution…');
-            const segments = await LLMClient.generateCode(text, wsCtx);
+            const rubric   = RubricManager.getRubric();
+            const segments = await LLMClient.generateCode(text, wsCtx, rubric);
             _showTyping(false);
 
             // 4. Register chain and show Start button
