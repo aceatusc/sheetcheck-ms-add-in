@@ -55,6 +55,7 @@ const RubricManager = (() => {
 
     function setRubric(rubric) {
         _rubric = rubric || { hard_requirements: [], soft_requirements: [] };
+        _hardList.innerHTML = '';  // clear loading placeholder
         _render();
     }
 
@@ -89,6 +90,9 @@ const RubricManager = (() => {
         _desc.textContent    = 'Review and edit the requirements below, then click Start to begin.';
         _expl.textContent    = '';
         _qaList.innerHTML    = '';
+        // Show loading placeholder until rubric arrives
+        _hardList.innerHTML = '<div class="rubric-loading">Generating requirements…</div>';
+        _softList.innerHTML = '';
     }
 
     /** Returns a promise that resolves when user clicks Start →. */
@@ -174,7 +178,7 @@ const RubricManager = (() => {
                 badge.textContent = type === 'hard' ? 'H' : 'S';
 
                 const label = document.createElement('span');
-                label.className   = 'rubric-label';
+                label.className   = 'rubric-label verify-label-full';
                 label.textContent = req.label;
 
                 row.appendChild(icon);

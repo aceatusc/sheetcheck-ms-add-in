@@ -359,6 +359,24 @@
 .verify-score-denom { font-size: 14px; font-weight: 400; color: rgba(255,255,255,0.45); }
 .verify-score-label { font-size: 11.5px; color: rgba(255,255,255,0.6); }
 
+/* Loading placeholder in rubric gate */
+.rubric-loading {
+    font-size: 11px; color: rgba(255,255,255,0.4);
+    padding: 8px 2px; font-style: italic;
+    animation: rubricFade 1.2s ease-in-out infinite alternate;
+}
+@keyframes rubricFade {
+    from { opacity: 0.3; }
+    to   { opacity: 0.8; }
+}
+
+/* Full-text requirement label in verify panel — no truncation */
+.verify-label-full {
+    white-space: normal !important;
+    overflow: visible !important;
+    text-overflow: unset !important;
+}
+
 
 .rubric-detail {
     font-size: 10.5px; color: rgba(255,255,255,0.7);
