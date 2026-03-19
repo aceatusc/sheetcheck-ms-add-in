@@ -145,24 +145,12 @@ const RubricManager = (() => {
 
         _badge.textContent   = 'Requirements Check';
         _counter.textContent = '';
-        _desc.textContent    = '';
+        _desc.textContent    = '';   // cleared — score goes into the rubric panel
         _expl.textContent    = '';
         _ranges.innerHTML    = '';
         _qaList.innerHTML    = '';
-
-        // Register gate callback NOW so _renderCard enables the button immediately
-        // via the _gateCallback check, even before verify results load.
-        _advanceResolve = null;
-        const gatePromise = new Promise((resolve, reject) => {
-            _advanceResolve = resolve;
-            _advanceReject  = reject;
-            StepNavigator.setGateMode(() => {
-                if (_advanceResolve) { const r = _advanceResolve; _advanceResolve = null; _advanceReject = null; r(); }
-                _staticEls().forEach(el => { if (el) el.style.display = ''; });
-                StepNavigator.dismissGate('verify');
-                showPanel(false);
-            });
-        });
+        _btnNext.textContent = '…';
+        _btnNext.disabled    = true;
 
         // Show the rubric panel, hide the editable gate elements
         showPanel(true);
@@ -261,7 +249,18 @@ const RubricManager = (() => {
                 `<span style="color:var(--color-error);font-size:11px">Verification failed: ${err.message}</span>`;
         }
 
-        return gatePromise;
+        _btnNext.textContent = '✓';
+        _btnNext.disabled    = false;
+
+        return new Promise(resolve => {
+            _advanceResolve = resolve;
+            StepNavigator.setGateMode(() => {
+                if (_advanceResolve) { const r = _advanceResolve; _advanceResolve = null; r(); }
+                _staticEls().forEach(el => { if (el) el.style.display = ''; });
+                StepNavigator.dismissGate('verify');
+                showPanel(false);
+            });
+        });
     }
 
     // ── Render ────────────────────────────────────────────────────────────────

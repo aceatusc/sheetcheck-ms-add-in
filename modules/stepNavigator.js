@@ -273,7 +273,8 @@ const StepNavigator = (() => {
         }
 
         // Counter: shows which node we're on. Root = 0/N (before step 1).
-        _counter.textContent = `${idx}/${total}`;
+        // _counter.textContent = `${idx}/${total}`;
+        _counter.textContent = ``;
 
         // Q&A from the incoming segment (what was just applied)
         _qaList.innerHTML = '';
@@ -286,13 +287,8 @@ const StepNavigator = (() => {
 
         _btnPrev.disabled = atRoot;
 
-        if (_gateCallback) {
-            _btnNext.textContent = '✓';
-            _btnNext.disabled    = false;
-        } else {
-            _btnNext.textContent = atLeaf ? '✓' : '→';
-            _btnNext.disabled    = atLeaf && !_advanceResolve;
-        }
+        _btnNext.textContent = atLeaf ? '✓' : '→';
+        _btnNext.disabled    = atLeaf && !_advanceResolve && !_gateCallback;
 
         _btnEdit.disabled = atRoot;
         _btnAsk.disabled  = atRoot;
