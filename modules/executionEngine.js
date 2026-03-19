@@ -7,9 +7,6 @@ const ExecutionEngine = (() => {
 
     const _logEl         = document.getElementById('execution-log');
     const _statusDot     = document.getElementById('execution-status-dot');
-    const _barFill       = document.getElementById('segment-bar-fill');
-    const _barLabel      = document.getElementById('segment-label');
-    const _progressStrip = document.getElementById('segment-progress');
 
     /**
      * Run all steps in a chain to completion.
@@ -20,10 +17,7 @@ const ExecutionEngine = (() => {
         if (!chain?.segments?.length) return;
 
         _setStatus('running');
-        _progressStrip.classList.add('visible');
         _log('info', `Starting execution: ${chain.segments.length} segment(s)`);
-
-        const total = chain.segments.length;
 
         while (true) {
             if (StepNavigator.isDismissed()) break;  // user closed the navigator
@@ -31,13 +25,9 @@ const ExecutionEngine = (() => {
             const current = DagRunner.getChain(chainId);
             if (!current) break;
 
-            const outgoing = DagStore.edgesFrom(current.currentNodeId);
+            const outgoing = (current.store || DagStore).edgesFrom(current.currentNodeId);
             if (!outgoing.length) break;
 
-            const stepIdx = current.nodeIds.indexOf(current.currentNodeId);
-            _updateProgress(stepIdx, current.segments.length);
-
-            StepNavigator.markRunning();
             if (StepNavigator.isDismissed()) break;
 
             let stepOk = false;
@@ -46,16 +36,18 @@ const ExecutionEngine = (() => {
                 if (!result) break;
 
                 stepOk = true;
-                _updateProgress(stepIdx + 1, DagRunner.getChain(chainId).segments.length);
                 _log('ok', `✓ ${result.segment.description}`);
             } catch (err) {
+                // Mark the edge red and log — but do NOT pause execution.
+                // The red edge in the graph is enough; the loop continues to the next step.
                 _log('err', `✗ ${err.message}`);
                 _setStatus('error');
-                const failedEdges = DagStore.edgesFrom(current.currentNodeId);
-                if (failedEdges[0]) DagStore.markEdge(failedEdges[0].id, { executed: true, failed: true });
+                const failedEdges = (current.store || DagStore).edgesFrom(current.currentNodeId);
+                if (failedEdges[0]) (current.store || DagStore).markEdge(failedEdges[0].id, { executed: true, failed: true });
                 if (StepNavigator.isDismissed()) break;
-                await StepNavigator.markFailed(err.message);
-                if (StepNavigator.isDismissed()) break;
+                // Advance currentNodeId past the failed step so the loop continues
+                DagRunner.advancePastFailed(chainId);
+                StepNavigator.refreshGraph();
                 continue;
             }
 
@@ -79,6 +71,32 @@ const ExecutionEngine = (() => {
         }
 
         await RubricManager.showVerifyResults();
+
+        // ── Review loop ────────────────────────────────────────────────────
+        // Identical to the execution loop above — waitForNext keeps
+        // _advanceResolve active so → / ← / graph-click work normally.
+        // stepForward re-runs the code on each → click, same as first time.
+        while (!StepNavigator.isDismissed()) {
+            const rc = DagRunner.getChain(chainId);
+            if (!rc) break;
+            const rcOut = (rc.store || DagStore).edgesFrom(rc.currentNodeId);
+            if (!rcOut.length) {
+                await StepNavigator.waitForNext();
+                break;
+            }
+            await StepNavigator.waitForNext();
+            if (StepNavigator.isDismissed()) break;
+            try {
+                const r = await DagRunner.stepForward(chainId);
+                if (!r) break;
+                _log('ok', `↺ ${r.segment.description}`);
+                StepNavigator.refreshGraph();
+            } catch (err) {
+                _log('err', `✗ ${err.message}`);
+                DagRunner.advancePastFailed(chainId);
+                StepNavigator.refreshGraph();
+            }
+        }
     }
 
     // ── Private helpers ───────────────────────────────────────────────────────
@@ -88,11 +106,6 @@ const ExecutionEngine = (() => {
         if (state) _statusDot.classList.add(state);
     }
 
-    function _updateProgress(done, total) {
-        const pct = total > 0 ? Math.round((done / total) * 100) : 0;
-        _barFill.style.width  = pct + '%';
-        _barLabel.textContent = `${done} / ${total}`;
-    }
 
     function _log(type, msg) {
         const time = new Date().toLocaleTimeString('en-US', { hour12: false });

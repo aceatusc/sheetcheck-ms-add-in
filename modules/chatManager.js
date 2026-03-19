@@ -45,8 +45,13 @@ const ChatManager = (() => {
         _appendMessage('user', text);
         _clearInput();
 
+        // Each send gets a fresh isolated run — reset shared module state
+        RubricManager.reset();
+
         try {
             const wsCtx = await WorksheetContext.gather(['selection', 'sheet']);
+            // Fresh isolated store per run — no bleed between runs or worksheets
+            const runStore = DagStore.create();
 
             // 1 & 2. Fire rubric scaffold in parallel — user sees the gate
             //        immediately while the LLM generates requirements in the background.
@@ -65,13 +70,15 @@ const ChatManager = (() => {
             // Wait for user to click Start in the gate
             await RubricManager.waitForGate();
 
-            // 3. Generate code segments (no rubric passed — server no longer needs it)
+            // 3. Generate code — pass the finalised rubric so the LLM knows
+            //    which requirements are hard (must satisfy) vs soft (nice to have)
             _showTyping(true, 'Generating a solution…');
-            const segments = await LLMClient.generateCode(text, wsCtx);
+            const rubric   = RubricManager.getRubric();
+            const segments = await LLMClient.generateCode(text, wsCtx, rubric);
             _showTyping(false);
 
             // 4. Register chain and show Start button
-            const chain = DagRunner.prepareChain(text, segments);
+            const chain = DagRunner.prepareChain(text, segments, runStore);
 
             _appendMessage('agent',
                 `Ready — ${segments.length} step${segments.length !== 1 ? 's' : ''} planned.`,
@@ -95,7 +102,6 @@ const ChatManager = (() => {
 
         } catch (err) {
             _showTyping(false);
-            _appendMessage('agent', `⚠️ ${err.message}`);
         }
 
         _setBusy(false);

@@ -43,23 +43,28 @@ const DagRunner = (() => {
         return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
     }
 
+    /** Get the isolated store for a chain (falls back to global DagStore for safety). */
+    function _s(chain) { return chain?.store || DagStore; }
+
     // ── Chain management ──────────────────────────────────────────────────────
 
     /**
      * Register a new chain from segments returned by /code.
      * Returns the chain handle (pass chainId to start()).
      */
-    function prepareChain(taskLabel, segments) {
-        const dag = DagStore.addChain(taskLabel, segments);
+    function prepareChain(taskLabel, segments, store) {
+        // store is a per-run DagStore instance created by chatManager
+        const dag = store.addChain(taskLabel, segments);
         const chainId = _uid();
         const chain = {
             chainId,
             taskLabel,
             segments,
+            store,               // isolated per-run store
             rootNodeId:  dag.rootNodeId,
             nodeIds:     dag.nodeIds,
             edgeIds:     dag.edgeIds,
-            currentNodeId: dag.rootNodeId,   // user starts at root (before any step)
+            currentNodeId: dag.rootNodeId,
         };
         _chains[chainId] = chain;
         return chain;
@@ -91,41 +96,34 @@ const DagRunner = (() => {
         const chain = getChain(chainId);
         if (!chain) throw new Error('Unknown chain.');
 
-        const outgoing = DagStore.edgesFrom(chain.currentNodeId);
-        if (!outgoing.length) return null;   // already at end of this branch
+        const outgoing = _s(chain).edgesFrom(chain.currentNodeId);
+        if (!outgoing.length) return null;
 
-        // Follow the main-chain edge if multiple outgoing (edit branches)
         const edge = _mainEdge(chain, outgoing);
         if (!edge) return null;
 
-        // Snapshot the sheet BEFORE running code (full used range).
         const snapshot = await WorksheetSnapshot.capture();
-        DagStore.setNodeSnapshot(chain.currentNodeId, snapshot);
+        _s(chain).setNodeSnapshot(chain.currentNodeId, snapshot);
 
         await _runCode(edge.segment.code);
-        DagStore.markEdge(edge.id, { executed: true, failed: false });
+        _s(chain).markEdge(edge.id, { executed: true, failed: false });
         chain.currentNodeId = edge.to;
         return { edge, segment: edge.segment };
     }
 
-    /**
-     * Restore the snapshot stored on the source node (edge.from),
-     * un-mark the edge, and retreat currentNodeId.
-     * Returns { edge, segment } or null if already at root.
-     */
+    /** Step backward one hop: restore snapshot, un-mark edge, retreat currentNodeId. */
     async function stepBack(chainId) {
         const chain = getChain(chainId);
         if (!chain) throw new Error('Unknown chain.');
 
-        const incoming = DagStore.edgesTo(chain.currentNodeId);
-        if (!incoming.length) return null;   // at root
+        const incoming = _s(chain).edgesTo(chain.currentNodeId);
+        if (!incoming.length) return null;
 
-        // Prefer the most recently executed incoming edge
         const edge = incoming.find(e => e.executed) || incoming[0];
         const desc = edge.segment?.description || edge.id;
 
         _log('info', `↩ Restoring snapshot: ${desc}`);
-        const snapshot = DagStore.getNodeSnapshot(edge.from);
+        const snapshot = _s(chain).getNodeSnapshot(edge.from);
         if (!snapshot) {
             _log('err', `✗ No snapshot for node before "${desc}". Was it ever visited?`);
             throw new Error(`No snapshot available for "${desc}".`);
@@ -136,31 +134,19 @@ const DagRunner = (() => {
             _log('err', `✗ Undo restore failed (${desc}): ${err.message}`);
             throw err;
         }
-        DagStore.markEdge(edge.id, { executed: false, failed: false });
+        _s(chain).markEdge(edge.id, { executed: false, failed: false });
         chain.currentNodeId = edge.from;
         _log('ok', `✓ Undone: ${desc}`);
         return { edge, segment: edge.segment };
     }
 
-    /**
-     * Navigate to an arbitrary node by executing the BFS shortest path.
-     *
-     * Each hop runs the SPECIFIC edge found by BFS — not re-derived via
-     * stepForward/stepBack which would follow the wrong branch.
-     *
-     * Backward hop: restore snapshot from edge.from, un-mark edge.
-     * Forward hop:  capture snapshot on current node, run edge.segment.code,
-     *               mark edge executed, advance currentNodeId.
-     *
-     * After arrival, chain.edgeIds is updated to reflect the path through
-     * the target node so subsequent stepForward calls continue correctly.
-     */
+    /** Navigate to any node via BFS. Forward hops re-run code; backward hops restore snapshots. */
     async function navigateTo(chainId, targetNodeId) {
         const chain = getChain(chainId);
         if (!chain) throw new Error('Unknown chain.');
         if (chain.currentNodeId === targetNodeId) return targetNodeId;
 
-        const path = _bfsPath(chain.currentNodeId, targetNodeId);
+        const path = _bfsPath(chain, chain.currentNodeId, targetNodeId);
         if (!path) throw new Error('No path to target node.');
 
         for (const hop of path) {
@@ -169,7 +155,7 @@ const DagRunner = (() => {
 
             if (hop.direction === 'backward') {
                 _log('info', `↩ Restoring snapshot: ${desc}`);
-                const snapshot = DagStore.getNodeSnapshot(edge.from);
+                const snapshot = _s(chain).getNodeSnapshot(edge.from);
                 if (!snapshot) {
                     _log('err', `✗ No snapshot for "${desc}".`);
                     throw new Error(`No snapshot available for "${desc}".`);
@@ -180,21 +166,21 @@ const DagRunner = (() => {
                     _log('err', `✗ Restore failed (${desc}): ${err.message}`);
                     throw err;
                 }
-                DagStore.markEdge(edge.id, { executed: false, failed: false });
+                _s(chain).markEdge(edge.id, { executed: false, failed: false });
                 chain.currentNodeId = edge.from;
                 _log('ok', `↩ Restored to before: ${desc}`);
 
             } else {
                 _log('info', `▶ Applying: ${desc}`);
                 const snapshot = await WorksheetSnapshot.capture();
-                DagStore.setNodeSnapshot(chain.currentNodeId, snapshot);
+                _s(chain).setNodeSnapshot(chain.currentNodeId, snapshot);
                 try {
                     await _runCode(edge.segment.code);
                 } catch (err) {
                     _log('err', `✗ Apply failed (${desc}): ${err.message}`);
                     throw err;
                 }
-                DagStore.markEdge(edge.id, { executed: true, failed: false });
+                _s(chain).markEdge(edge.id, { executed: true, failed: false });
                 chain.currentNodeId = edge.to;
                 _log('ok', `✓ Applied: ${desc}`);
             }
@@ -205,6 +191,18 @@ const DagRunner = (() => {
         _updateActiveEdges(chain, targetNodeId);
 
         return chain.currentNodeId;
+    }
+
+    /**
+     * After a step fails, advance currentNodeId to the destination node
+     * so the execution loop can continue to the next step.
+     */
+    function advancePastFailed(chainId) {
+        const chain = getChain(chainId);
+        if (!chain) return;
+        const outgoing = _s(chain).edgesFrom(chain.currentNodeId);
+        const edge = _mainEdge(chain, outgoing);
+        if (edge) chain.currentNodeId = edge.to;
     }
 
     // ── Edit branching ────────────────────────────────────────────────────────
@@ -233,7 +231,7 @@ const DagRunner = (() => {
         const originalNodeIds = chain.originalNodeIds || chain.nodeIds;
         const originalEdgeIds = chain.originalEdgeIds || chain.edgeIds;
 
-        const branched = DagStore.addChain(taskLabel, newSegments, forkNodeId);
+        const branched = _s(chain).addChain(taskLabel, newSegments, forkNodeId);
 
         // Save the previous active path as a historical branch so
         // buildRenderGraph can keep it on its own fixed row.
@@ -274,7 +272,7 @@ const DagRunner = (() => {
         const chain = getChain(chainId);
         if (!chain) return { nodes: [], edges: [], currentNodeId: null, cols: 0, rows: 1 };
 
-        const dag      = DagStore.getAll();
+        const dag      = _s(chain).getAll();
         const allEdges = dag.edges;
 
         const originalNodeIds = chain.originalNodeIds || chain.nodeIds;
@@ -335,7 +333,7 @@ const DagRunner = (() => {
         Object.entries(layout).forEach(([nid, pos]) => {
             if (seenNodes.has(nid)) return;
             seenNodes.add(nid);
-            const n = DagStore.getNode(nid);
+            const n = _s(chain).getNode(nid);
             nodesOut.push({
                 id:    nid,
                 label: n?.label || '',
@@ -391,7 +389,7 @@ const DagRunner = (() => {
 
         while (cur !== chain.rootNodeId && !visited.has(cur)) {
             visited.add(cur);
-            const incoming = DagStore.edgesTo(cur);
+            const incoming = _s(chain).edgesTo(cur);
             // Prefer executed edge; the path we just traversed is marked executed
             const e = incoming.find(ed => ed.executed) || incoming[0];
             if (!e) break;
@@ -404,10 +402,10 @@ const DagRunner = (() => {
         }
     }
 
-    /** BFS over the full DAG; returns [{edge, direction}] or null. */
-    function _bfsPath(fromNodeId, toNodeId) {
+    /** BFS over the run's DAG; returns [{edge, direction}] or null. */
+    function _bfsPath(chain, fromNodeId, toNodeId) {
         if (fromNodeId === toNodeId) return [];
-        const dag = DagStore.getAll();
+        const dag = _s(chain).getAll();
 
         const fwd = {}; // nodeId → edges[]
         const bwd = {};
@@ -456,7 +454,7 @@ const DagRunner = (() => {
      */
     function _visitedNodes(chain) {
         const visited = new Set();
-        const dag = DagStore.getAll();
+        const dag = _s(chain).getAll();
         // Root is always committed — it's the sheet state before anything ran
         visited.add(chain.rootNodeId);
         dag.edges.forEach(e => { if (e.executed) visited.add(e.to); });
@@ -486,6 +484,7 @@ const DagRunner = (() => {
         stepBack,
         navigateTo,
         applyEdit,
+        advancePastFailed,
         buildRenderGraph,
     };
 })();

@@ -49,7 +49,6 @@ const StepNavigator = (() => {
 
     // ── State ─────────────────────────────────────────────────────────────────
     let _chainId        = null;
-    let _isRunning      = false;
     let _advanceResolve = null;
     let _dismissed      = false;  // set on dismiss; checked by executionEngine
     let _askHistory     = [];
@@ -81,7 +80,6 @@ const StepNavigator = (() => {
     /** Called by DagRunner.start() with the chain handle. */
     function load(chain) {
         _chainId        = chain.chainId;
-        _isRunning      = false;
         _advanceResolve = null;
         _askHistory     = [];
         _activePanel    = null;
@@ -95,15 +93,10 @@ const StepNavigator = (() => {
     // ── ExecutionEngine interface ─────────────────────────────────────────────
 
     function markRunning() {
-        _isRunning = true;
-        _overlay.classList.add('running', 'visible');
-        _chatPanel.classList.add('nav-active');
-        _render();
+        // no-op — running state removed; navigateTo handles all navigation
     }
 
     async function markFailed(errorMsg) {
-        _isRunning = false;
-        _overlay.classList.remove('running');
         _overlay.classList.add('visible', 'failed');
         _chatPanel.classList.add('nav-active');
 
@@ -117,8 +110,6 @@ const StepNavigator = (() => {
     }
 
     async function waitForNext() {
-        _isRunning = false;
-        _overlay.classList.remove('running');
         _overlay.classList.add('visible');
         _chatPanel.classList.add('nav-active');
         _askHistory = [];
@@ -131,13 +122,14 @@ const StepNavigator = (() => {
 
     function dismiss() {
         _dismissed = true;   // signals executionEngine to stop looping
-        _isRunning = false;
         _overlay.classList.remove('visible', 'running', 'failed', 'rubric-gate', 'verify-gate');
         _chatPanel.classList.remove('nav-active');
         _closePanel();
         _gateCallback = null;
-        // Resolve the pending promise so awaiting callers unblock,
-        // but executionEngine checks _dismissed before continuing.
+        // Reject any pending rubric/verify gate promise so chatManager catches it
+        // and calls _setBusy(false), re-enabling the chat input.
+        try { RubricManager.rejectGate(); } catch (_) {}
+        // Resolve any pending step advance (executionEngine checks _dismissed after).
         _resolve();
     }
 
@@ -146,12 +138,24 @@ const StepNavigator = (() => {
     /** Re-render after DagRunner mutates chain state (public). */
     function refreshGraph() { _render(); }
 
-    // ── Navigation ────────────────────────────────────────────────────────────
+    // ── Navigation — _onNext/_onPrev/_onNodeClick all funnel through _navigateTo ─
+
+    async function _navigateTo(nodeId) {
+        _gateCallback = null;
+        _overlay.classList.remove('verify-gate', 'rubric-gate', 'failed');
+        try {
+            await DagRunner.navigateTo(_chainId, nodeId);
+            _render();
+            await _focusRanges();
+        } catch (err) {
+            ExecutionEngine.log('err', `✗ Navigate failed: ${err.message}`);
+            _render();
+        }
+    }
 
     function _onNext() {
-        if (_isRunning) return;
 
-        // Gate mode: rubric-gate or verify-gate — delegate entirely to the registered callback
+        // Gate callbacks (rubric-gate / verify-gate) take priority
         if (_gateCallback) {
             const cb = _gateCallback;
             _gateCallback = null;
@@ -159,17 +163,36 @@ const StepNavigator = (() => {
             return;
         }
 
+        // Live execution waiting for user confirmation
         if (_advanceResolve) {
             _overlay.classList.remove('failed');
             _resolve();
+            return;
         }
+
+        // Otherwise: navigate to the next node (replay or normal forward step)
+        const chain = DagRunner.getChain(_chainId);
+        if (!chain) return;
+        const store  = chain.store || DagStore;
+        const edges  = store.edgesFrom(chain.currentNodeId);
+        const edge   = edges.find(e => new Set(chain.edgeIds).has(e.id)) || edges[0];
+        if (edge) _navigateTo(edge.to);
     }
+
+    function _onPrev() {
+        const chain = DagRunner.getChain(_chainId);
+        if (!chain) return;
+        const store   = chain.store || DagStore;
+        const incoming = store.edgesTo(chain.currentNodeId);
+        const edge    = incoming.find(e => e.executed) || incoming[0];
+        if (edge) _navigateTo(edge.from);
+    }
+
+    function _onNodeClick(nodeId) { _navigateTo(nodeId); }
 
     /**
      * Register a one-shot callback for the next → click.
      * Called by RubricManager.showRubricGate() and showVerifyResults().
-     * @param {'rubric'|'verify'} _mode  (informational, unused internally)
-     * @param {Function}          cb     called when → is clicked
      */
     function setGateMode(cb) {
         _gateCallback = cb;
@@ -179,32 +202,6 @@ const StepNavigator = (() => {
     function dismissGate(type) {
         _overlay.classList.remove(`${type}-gate`, 'visible');
         _chatPanel.classList.remove('nav-active');
-    }
-
-    function _onPrev() {
-        if (_isRunning) return;
-        DagRunner.stepBack(_chainId)
-            .then(() => {
-                _overlay.classList.remove('failed');
-                _render();
-            })
-            .catch(err => {
-                ExecutionEngine.log('err', `✗ Step back failed: ${err.message}`);
-                _render();
-            });
-    }
-
-    async function _onNodeClick(nodeId) {
-        if (_isRunning) return;
-        try {
-            await DagRunner.navigateTo(_chainId, nodeId);
-            _overlay.classList.remove('failed');
-            _render();
-            await _focusRanges();
-        } catch (err) {
-            ExecutionEngine.log('err', `✗ Navigate failed: ${err.message}`);
-            _render();
-        }
     }
 
     function _resolve() {
@@ -228,14 +225,12 @@ const StepNavigator = (() => {
         const total = chain.segments.length;
         const idx   = _currentIndex(chain);      // 0-based position of currentNodeId
 
-        const atRoot   = DagStore.edgesTo(chain.currentNodeId).length === 0;
-        const atLeaf   = DagStore.edgesFrom(chain.currentNodeId).length === 0;
+        const atRoot   = (chain.store || DagStore).edgesTo(chain.currentNodeId).length === 0;
+        const atLeaf   = (chain.store || DagStore).edgesFrom(chain.currentNodeId).length === 0;
         const isFailed = !!(seg?._errorMsg);
 
         // Badge: "Running step N…" / "Step N of M applied" / "Ready — N steps"
-        if (_isRunning) {
-            _badge.textContent = `Applying step ${idx + 1}…`;
-        } else if (atRoot) {
+        if (atRoot) {
             _badge.textContent = `Ready — ${total} step${total !== 1 ? 's' : ''}`;
         } else if (isFailed) {
             _badge.textContent = `✗ Step ${idx} of ${total} — failed`;
@@ -244,7 +239,7 @@ const StepNavigator = (() => {
         }
 
         // Ranges, description, explanation from current node's incoming segment
-        const displaySeg = _isRunning ? (next || seg) : seg;
+        const displaySeg = seg;
         _ranges.innerHTML = '';
         (displaySeg?.sheet_context || []).forEach(addr => {
             const c = document.createElement('span');
@@ -253,7 +248,7 @@ const StepNavigator = (() => {
             _ranges.appendChild(c);
         });
 
-        if (atRoot && !_isRunning) {
+        if (atRoot) {
             _desc.textContent = 'Original sheet — no changes applied yet.';
             _expl.textContent = next ? `Next: ${next.description}` : '';
         } else if (displaySeg) {
@@ -266,9 +261,7 @@ const StepNavigator = (() => {
             }
         }
 
-        // Counter: shows which node we're on. Root = 0/N (before step 1).
-        _counter.textContent = `${idx}`;
-        // _counter.textContent = `${idx}/${total}`;
+        _counter.textContent = '';
 
         // Q&A from the incoming segment (what was just applied)
         _qaList.innerHTML = '';
@@ -279,18 +272,13 @@ const StepNavigator = (() => {
             _qaList.appendChild(item);
         });
 
-        _btnPrev.disabled = _isRunning || atRoot;
+        _btnPrev.disabled = atRoot;
 
-        if (_isRunning) {
-            _btnNext.textContent = '…';
-            _btnNext.disabled    = true;
-        } else {
-            _btnNext.textContent = atLeaf ? '✓' : '→';
-            _btnNext.disabled    = !_advanceResolve && !isFailed;
-        }
+        _btnNext.textContent = atLeaf ? '✓' : '→';
+        _btnNext.disabled    = atLeaf && !_advanceResolve && !_gateCallback;
 
-        _btnEdit.disabled = _isRunning || atRoot;
-        _btnAsk.disabled  = _isRunning || atRoot;
+        _btnEdit.disabled = atRoot;
+        _btnAsk.disabled  = atRoot;
     }
 
     // ── Graph render — git-style SVG ──────────────────────────────────────────
@@ -440,7 +428,7 @@ const StepNavigator = (() => {
     async function _onAskSend() {
         const msg = _askInput.value.trim();
         const chain0 = DagRunner.getChain(_chainId);
-        const atLeaf0 = DagStore.edgesFrom(chain0.currentNodeId).length === 0;
+        const atLeaf0 = (chain0.store || DagStore).edgesFrom(chain0.currentNodeId).length === 0;
         const seg0 = atLeaf0 ? _currentSegment(chain0) : _nextSegment(chain0);
         const hasParamChange = !!_collectParamChanges(seg0);
         if (!msg && !hasParamChange) return;
@@ -599,7 +587,7 @@ const StepNavigator = (() => {
      * No LLM call — instant. Updates seg.parameters[idx].value so subsequent
      * opens of the Edit panel show the new value.
      */
-    async function _applyParam(seg, idx, rawValue, btn) {
+    async function _applyParam(seg, idx, rawValue, inp) {
         if (!seg?.code) return;
         const p      = seg.parameters[idx];
         const oldVal = p.value;
@@ -638,7 +626,7 @@ const StepNavigator = (() => {
         } catch (err) {
             inp.style.borderColor = 'rgba(245,100,60,0.8)';
             setTimeout(() => { inp.style.borderColor = ''; }, 800);
-        } finally {}
+        }
     }
 
     function _escapeRegex(str) {
@@ -650,7 +638,7 @@ const StepNavigator = (() => {
         if (!msg) return;
 
         const chain   = DagRunner.getChain(_chainId);
-        const atLeaf  = DagStore.edgesFrom(chain.currentNodeId).length === 0;
+        const atLeaf  = (chain.store || DagStore).edgesFrom(chain.currentNodeId).length === 0;
         const seg     = _displayedSeg(chain);
         const fromIdx = atLeaf
             ? Math.max(0, _currentIndex(chain) - 1)
@@ -721,20 +709,17 @@ const StepNavigator = (() => {
      */
     function _currentSegment(chain) {
         if (!chain) return null;
-        const incoming = DagStore.edgesTo(chain.currentNodeId);
+        const incoming = (chain.store || DagStore).edgesTo(chain.currentNodeId);
         if (!incoming.length) return null;   // root node — no step applied yet
         // Prefer the executed incoming edge; fall back to any incoming edge
         const e = incoming.find(ed => ed.executed) || incoming[0];
         return e?.segment || null;
     }
 
-    /**
-     * Segment for the NEXT step — the outgoing edge from currentNodeId.
-     * Used by markRunning to show what is about to be applied.
-     */
+    /** Segment for the next step — outgoing edge from currentNodeId. */
     function _nextSegment(chain) {
         if (!chain) return null;
-        const outgoing   = DagStore.edgesFrom(chain.currentNodeId);
+        const outgoing   = (chain.store || DagStore).edgesFrom(chain.currentNodeId);
         const mainEdgeSet = new Set(chain.edgeIds);
         if (!outgoing.length) return null;
         return (outgoing.find(e => mainEdgeSet.has(e.id)) || outgoing[0]).segment || null;

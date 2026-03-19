@@ -35,14 +35,33 @@ const RubricManager = (() => {
     const _softList   = document.getElementById('rubric-soft-list');
     const _addBtn     = document.getElementById('rubric-add-btn');
     const _verifyEl   = document.getElementById('rubric-verify-results');
+    // All static rubric-panel elements hidden during verify results
+    const _staticEls  = () => [
+        ...document.querySelectorAll('#step-nav-rubric .rubric-section-label'),
+        _hardList, _softList, _addBtn,
+    ];
 
     // ── State ─────────────────────────────────────────────────────────────────
     let _rubric        = { hard_requirements: [], soft_requirements: [] };
     let _advanceResolve = null;
+    let _advanceReject  = null;
     let _dragId        = null;
     let _dragType      = null;
 
     // ── Public ────────────────────────────────────────────────────────────────
+
+    /** Reset all per-run state — called by chatManager before each new run. */
+    function reset() {
+        _rubric = { hard_requirements: [], soft_requirements: [] };
+        _advanceResolve = null;
+        _advanceReject  = null;
+        // Clear verify results from previous run
+        if (_verifyEl) _verifyEl.innerHTML = '';
+        // Restore static elements hidden during verify
+        _staticEls().forEach(el => { if (el) el.style.display = ''; });
+        _panel?.querySelector('.rubric-loading')?.remove();
+        showPanel(false);
+    }
 
     function init() {
         _addBtn?.addEventListener('click', _onAdd);
@@ -50,6 +69,8 @@ const RubricManager = (() => {
 
     function setRubric(rubric) {
         _rubric = rubric || { hard_requirements: [], soft_requirements: [] };
+        // Clear loading placeholder from panel container
+        _panel?.querySelector('.rubric-loading')?.remove();
         _render();
     }
 
@@ -61,14 +82,7 @@ const RubricManager = (() => {
         if (visible) _render();
     }
 
-    /**
-     * Show the "Review Requirements" gate before execution.
-     * Resolves when the user clicks Start →.
-     *
-     * Registers a one-shot gate callback on StepNavigator so the next →
-     * click resolves the promise — no shared boolean flag needed between modules.
-     */
-    /** Show the gate UI immediately (non-blocking). */
+    /** Show the rubric gate immediately. Rubric loads in parallel via setRubric(). */
     function showRubricGate() {
         _lockNav();
         _overlay.classList.add('visible', 'rubric-gate');
@@ -84,14 +98,28 @@ const RubricManager = (() => {
         _desc.textContent    = 'Review and edit the requirements below, then click Start to begin.';
         _expl.textContent    = '';
         _qaList.innerHTML    = '';
+        // Show loading placeholder in the panel container until rubric arrives
+        _hardList.innerHTML = '';
+        _softList.innerHTML = '';
+        if (_panel) {
+            let _loadingEl = _panel.querySelector('.rubric-loading');
+            if (!_loadingEl) {
+                _loadingEl = document.createElement('div');
+                _loadingEl.className = 'rubric-loading';
+                _loadingEl.textContent = 'Generating requirements…';
+                _panel.insertBefore(_loadingEl, _panel.firstChild);
+            }
+        }
     }
 
-    /** Returns a promise that resolves when user clicks Start →. */
+    /** Returns a promise that resolves when user clicks →.
+     *  Rejects with DismissedError if the user closes the navigator. */
     function waitForGate() {
-        return new Promise(resolve => {
+        return new Promise((resolve, reject) => {
             _advanceResolve = resolve;
+            _advanceReject  = reject;
             StepNavigator.setGateMode(() => {
-                if (_advanceResolve) { const r = _advanceResolve; _advanceResolve = null; r(); }
+                if (_advanceResolve) { const r = _advanceResolve; _advanceResolve = null; _advanceReject = null; r(); }
                 StepNavigator.dismissGate('rubric');
                 showPanel(false);
             });
@@ -104,94 +132,128 @@ const RubricManager = (() => {
      */
     async function showVerifyResults() {
         _lockNav();
-        _overlay.classList.remove('failed', 'running');
+        _overlay.classList.remove('failed');
         _overlay.classList.add('visible', 'verify-gate');
         _chatPanel.classList.add('nav-active');
 
         _badge.textContent   = 'Requirements Check';
         _counter.textContent = '';
-        _desc.textContent    = 'Verifying your spreadsheet against the requirements…';
+        _desc.textContent    = '';
         _expl.textContent    = '';
         _ranges.innerHTML    = '';
         _qaList.innerHTML    = '';
-        _btnNext.textContent = '…';
-        _btnNext.disabled    = true;
 
+        // Register gate NOW so _renderCard enables the ✓ button immediately.
+        const gatePromise = new Promise((resolve, reject) => {
+            _advanceResolve = resolve;
+            _advanceReject  = reject;
+            StepNavigator.setGateMode(() => {
+                if (_advanceResolve) { const r = _advanceResolve; _advanceResolve = null; _advanceReject = null; r(); }
+                _staticEls().forEach(el => { if (el) el.style.display = ''; });
+                showPanel(false);
+                // Full dismiss — re-enables chat and clears all overlay state
+                StepNavigator.dismiss();
+            });
+        });
+
+        // Show the rubric panel, hide the editable gate elements
         showPanel(true);
-        _verifyEl.innerHTML =
-            '<span style="color:rgba(255,255,255,0.6);font-size:11px">Verifying requirements…</span>';
+        _staticEls().forEach(el => { if (el) el.style.display = 'none'; });
+        _verifyEl.innerHTML  = '<span class="verify-loading">Verifying requirements…</span>';
 
         try {
             const wsCtx = await WorksheetContext.gather(['sheet']);
             const res   = await LLMClient.rubricVerify(_rubric, wsCtx);
 
-            _verifyEl.innerHTML =
-                '<div class="rubric-section-label" style="margin-top:8px">Verification Results</div>';
+            // Build a lookup from the verify response
+            const resultMap = {};
+            (res.results || []).forEach(r => { resultMap[r.id] = r; });
 
-            const allItems = [
-                ...(_rubric.hard_requirements || []),
-                ...(_rubric.soft_requirements || []),
-            ];
-            let metCount = 0;
+            const hard = _rubric.hard_requirements || [];
+            const soft = _rubric.soft_requirements || [];
+            const all  = [...hard, ...soft];
 
-            (res.results || []).forEach(r => {
-                const item = allItems.find(x => x.id === r.id);
-                if (!item) return;
-                const type = (_rubric.hard_requirements || []).find(x => x.id === r.id) ? 'hard' : 'soft';
-                if (r.met) metCount++;
+            // Count met only for requirements that exist in the rubric
+            const metCount = all.filter(req => resultMap[req.id]?.met).length;
+            const total    = all.length;
+            const allMet   = metCount === total;
 
-                const row  = document.createElement('div');
+            // ── Clear loading text and render results ─────────────────────
+            _verifyEl.innerHTML = '';
+
+            // Score line at the top of the verify area
+            const scoreEl = document.createElement('div');
+            scoreEl.className = 'verify-score';
+            scoreEl.innerHTML =
+                `<span class="verify-score-num ${allMet ? 'all-met' : metCount === 0 ? 'none-met' : ''}">`
+                + `${metCount}<span class="verify-score-denom">/${total}</span></span>`
+                + `<span class="verify-score-label">${allMet ? 'All requirements met 🎉' : 'requirements met'}</span>`;
+            _verifyEl.appendChild(scoreEl);
+
+            // ── Read-only rows — same visual style as the gate rubric rows
+            //    but with ✓/⚠ on the left instead of drag/move/delete ────
+            const _appendVerifyRow = (req, type) => {
+                const r   = resultMap[req.id];
+                const met = r?.met ?? false;
+
+                const row = document.createElement('div');
                 row.className = 'rubric-row';
-                const icon = r.met ? `<span class="rubric-check">✓</span>`
-                                   : `<span class="rubric-warn">⚠</span>`;
-                row.innerHTML = `
-                    <span class="rubric-badge rubric-${type}">${type === 'hard' ? 'H' : 'S'}</span>
-                    <span class="rubric-label" style="user-select:none">${item.label}</span>
-                    ${icon}`;
 
-                const iconEl = row.querySelector('.rubric-check, .rubric-warn');
-                if (iconEl) {
-                    iconEl.style.cursor = 'pointer';
-                    let open = false;
-                    iconEl.addEventListener('click', () => {
-                        open = !open;
-                        let detail = row.querySelector('.rubric-detail');
-                        if (!detail) {
-                            detail = document.createElement('div');
-                            detail.className = 'rubric-detail';
-                            row.appendChild(detail);
-                        }
+                const icon = document.createElement('span');
+                icon.className   = met ? 'rubric-check' : 'rubric-warn';
+                icon.textContent = met ? '✓' : '⚠';
+
+                const badge = document.createElement('span');
+                badge.className   = `rubric-badge rubric-${type}`;
+                badge.textContent = type === 'hard' ? 'H' : 'S';
+
+                const label = document.createElement('span');
+                label.className   = 'rubric-label verify-label-full';
+                label.textContent = req.label;
+
+                row.appendChild(icon);
+                row.appendChild(badge);
+                row.appendChild(label);
+
+                // Click row to toggle reasoning
+                if (r?.reasoning) {
+                    row.style.cursor = 'pointer';
+                    let detail = null;
+                    row.addEventListener('click', () => {
+                        if (detail) { detail.remove(); detail = null; return; }
+                        detail = document.createElement('div');
+                        detail.className = 'rubric-detail';
+                        detail.style.display = 'block';
                         detail.textContent = r.reasoning
                             + (r.references?.length ? ` (${r.references.join(', ')})` : '');
-                        detail.style.display = open ? 'block' : 'none';
+                        row.after(detail);
                     });
                 }
-                _verifyEl.appendChild(row);
-            });
 
-            const total = res.results?.length || 0;
-            // ? `${metCount} of ${total} requirement${total !== 1 ? 's' : ''} met`
-            _desc.textContent = total
-                ? `${metCount} requirement(s) met`
-                : 'No requirements to verify.';
+                _verifyEl.appendChild(row);
+            };
+
+            if (hard.length) {
+                const hl = document.createElement('div');
+                hl.className   = 'rubric-section-label';
+                hl.textContent = 'Hard Requirements';
+                _verifyEl.appendChild(hl);
+                hard.forEach(r => _appendVerifyRow(r, 'hard'));
+            }
+            if (soft.length) {
+                const sl = document.createElement('div');
+                sl.className   = 'rubric-section-label';
+                sl.textContent = 'Soft Requirements';
+                _verifyEl.appendChild(sl);
+                soft.forEach(r => _appendVerifyRow(r, 'soft'));
+            }
 
         } catch (err) {
             _verifyEl.innerHTML =
                 `<span style="color:var(--color-error);font-size:11px">Verification failed: ${err.message}</span>`;
-            _desc.textContent = 'Could not verify requirements.';
         }
 
-        _btnNext.textContent = '✓';
-        _btnNext.disabled    = false;
-
-        return new Promise(resolve => {
-            _advanceResolve = resolve;
-            StepNavigator.setGateMode(() => {
-                if (_advanceResolve) { const r = _advanceResolve; _advanceResolve = null; r(); }
-                StepNavigator.dismissGate('verify');
-                showPanel(false);
-            });
-        });
+        return gatePromise;
     }
 
     // ── Render ────────────────────────────────────────────────────────────────
@@ -352,5 +414,21 @@ const RubricManager = (() => {
         _btnAsk.disabled  = true;
     }
 
-    return { init, setRubric, getRubric, showPanel, showRubricGate, waitForGate, showVerifyResults };
+    /** Called by StepNavigator.dismiss() to abort any pending gate promise. */
+    function rejectGate() {
+        _panel?.querySelector('.rubric-loading')?.remove();
+        showPanel(false);
+        if (_advanceReject) {
+            const rj = _advanceReject;
+            _advanceResolve = null; _advanceReject = null;
+            rj(new Error('dismissed'));
+        }
+        if (_advanceResolve) {
+            const r = _advanceResolve;
+            _advanceResolve = null;
+            r();  // also resolve plain advance promises
+        }
+    }
+
+    return { init, reset, setRubric, getRubric, showPanel, showRubricGate, waitForGate, rejectGate, showVerifyResults };
 })();
