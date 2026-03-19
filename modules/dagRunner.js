@@ -470,7 +470,7 @@ const DagRunner = (() => {
      */
     function _visitedNodes(chain) {
         const visited = new Set();
-        const dag = DagStore.getAll();
+        const dag = _s(chain).getAll();
         // Root is always committed — it's the sheet state before anything ran
         visited.add(chain.rootNodeId);
         dag.edges.forEach(e => { if (e.executed) visited.add(e.to); });

@@ -230,8 +230,8 @@ const StepNavigator = (() => {
         const total = chain.segments.length;
         const idx   = _currentIndex(chain);      // 0-based position of currentNodeId
 
-        const atRoot   = DagStore.edgesTo(chain.currentNodeId).length === 0;
-        const atLeaf   = DagStore.edgesFrom(chain.currentNodeId).length === 0;
+        const atRoot   = (chain.store || DagStore).edgesTo(chain.currentNodeId).length === 0;
+        const atLeaf   = (chain.store || DagStore).edgesFrom(chain.currentNodeId).length === 0;
         const isFailed = !!(seg?._errorMsg);
 
         // Badge: "Running step N…" / "Step N of M applied" / "Ready — N steps"
@@ -442,7 +442,7 @@ const StepNavigator = (() => {
     async function _onAskSend() {
         const msg = _askInput.value.trim();
         const chain0 = DagRunner.getChain(_chainId);
-        const atLeaf0 = DagStore.edgesFrom(chain0.currentNodeId).length === 0;
+        const atLeaf0 = (chain0.store || DagStore).edgesFrom(chain0.currentNodeId).length === 0;
         const seg0 = atLeaf0 ? _currentSegment(chain0) : _nextSegment(chain0);
         const hasParamChange = !!_collectParamChanges(seg0);
         if (!msg && !hasParamChange) return;
@@ -652,7 +652,7 @@ const StepNavigator = (() => {
         if (!msg) return;
 
         const chain   = DagRunner.getChain(_chainId);
-        const atLeaf  = DagStore.edgesFrom(chain.currentNodeId).length === 0;
+        const atLeaf  = (chain.store || DagStore).edgesFrom(chain.currentNodeId).length === 0;
         const seg     = _displayedSeg(chain);
         const fromIdx = atLeaf
             ? Math.max(0, _currentIndex(chain) - 1)
@@ -723,7 +723,7 @@ const StepNavigator = (() => {
      */
     function _currentSegment(chain) {
         if (!chain) return null;
-        const incoming = DagStore.edgesTo(chain.currentNodeId);
+        const incoming = (chain.store || DagStore).edgesTo(chain.currentNodeId);
         if (!incoming.length) return null;   // root node — no step applied yet
         // Prefer the executed incoming edge; fall back to any incoming edge
         const e = incoming.find(ed => ed.executed) || incoming[0];
@@ -736,7 +736,7 @@ const StepNavigator = (() => {
      */
     function _nextSegment(chain) {
         if (!chain) return null;
-        const outgoing   = DagStore.edgesFrom(chain.currentNodeId);
+        const outgoing   = (chain.store || DagStore).edgesFrom(chain.currentNodeId);
         const mainEdgeSet = new Set(chain.edgeIds);
         if (!outgoing.length) return null;
         return (outgoing.find(e => mainEdgeSet.has(e.id)) || outgoing[0]).segment || null;

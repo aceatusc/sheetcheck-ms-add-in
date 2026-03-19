@@ -31,7 +31,7 @@ const ExecutionEngine = (() => {
             const current = DagRunner.getChain(chainId);
             if (!current) break;
 
-            const outgoing = DagStore.edgesFrom(current.currentNodeId);
+            const outgoing = (current.store || DagStore).edgesFrom(current.currentNodeId);
             if (!outgoing.length) break;
 
             const stepIdx = current.nodeIds.indexOf(current.currentNodeId);
