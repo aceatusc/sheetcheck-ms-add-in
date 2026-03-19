@@ -88,7 +88,7 @@ const ChatManager = (() => {
                     btn.textContent = 'Starting…';
                     _setBusy(true);
                     try {
-                        _appendMessage('agent', `Applying ${segments.length} step(s)…`);
+                        // _appendMessage('agent', `Applying ${segments.length} step(s)…`);
                         await DagRunner.start(chain.chainId);
                     } catch (err) {
                         // _appendMessage('agent', `⚠️ ${err.message}`);
