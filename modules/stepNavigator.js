@@ -196,6 +196,8 @@ const StepNavigator = (() => {
 
     function _onPrev() {
         if (_isRunning) return;
+        _gateCallback = null;
+        _overlay.classList.remove('verify-gate', 'rubric-gate');
         DagRunner.stepBack(_chainId)
             .then(() => {
                 _overlay.classList.remove('failed');
@@ -209,6 +211,9 @@ const StepNavigator = (() => {
 
     async function _onNodeClick(nodeId) {
         if (_isRunning) return;
+        // Clear any pending gate callback — navigating via graph bypasses gates
+        _gateCallback = null;
+        _overlay.classList.remove('verify-gate', 'rubric-gate');
         try {
             await DagRunner.navigateTo(_chainId, nodeId);
             _overlay.classList.remove('failed');
