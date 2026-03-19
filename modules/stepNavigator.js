@@ -49,7 +49,6 @@ const StepNavigator = (() => {
 
     // ── State ─────────────────────────────────────────────────────────────────
     let _chainId        = null;
-    let _isRunning      = false;
     let _advanceResolve = null;
     let _dismissed      = false;  // set on dismiss; checked by executionEngine
     let _askHistory     = [];
@@ -81,7 +80,6 @@ const StepNavigator = (() => {
     /** Called by DagRunner.start() with the chain handle. */
     function load(chain) {
         _chainId        = chain.chainId;
-        _isRunning      = false;
         _advanceResolve = null;
         _askHistory     = [];
         _activePanel    = null;
@@ -95,10 +93,7 @@ const StepNavigator = (() => {
     // ── ExecutionEngine interface ─────────────────────────────────────────────
 
     function markRunning() {
-        _isRunning = true;
-        _overlay.classList.add('running', 'visible');
-        _chatPanel.classList.add('nav-active');
-        _render();
+        // no-op — running state removed; navigateTo handles all navigation
     }
 
     async function markFailed(errorMsg) {
@@ -158,7 +153,6 @@ const StepNavigator = (() => {
     // which don't involve sheet navigation at all.
 
     async function _navigateTo(nodeId) {
-        if (_isRunning) return;
         _gateCallback = null;
         _overlay.classList.remove('verify-gate', 'rubric-gate', 'failed');
         try {
@@ -172,7 +166,6 @@ const StepNavigator = (() => {
     }
 
     function _onNext() {
-        if (_isRunning) return;
 
         // Gate callbacks (rubric-gate / verify-gate) take priority
         if (_gateCallback) {
@@ -251,9 +244,7 @@ const StepNavigator = (() => {
         const isFailed = !!(seg?._errorMsg);
 
         // Badge: "Running step N…" / "Step N of M applied" / "Ready — N steps"
-        if (_isRunning) {
-            _badge.textContent = `Applying step ${idx + 1}…`;
-        } else if (atRoot) {
+        if (atRoot) {
             _badge.textContent = `Ready — ${total} step${total !== 1 ? 's' : ''}`;
         } else if (isFailed) {
             _badge.textContent = `✗ Step ${idx} of ${total} — failed`;
@@ -262,7 +253,7 @@ const StepNavigator = (() => {
         }
 
         // Ranges, description, explanation from current node's incoming segment
-        const displaySeg = _isRunning ? (next || seg) : seg;
+        const displaySeg = seg;
         _ranges.innerHTML = '';
         (displaySeg?.sheet_context || []).forEach(addr => {
             const c = document.createElement('span');
@@ -285,6 +276,7 @@ const StepNavigator = (() => {
         }
 
         // Counter: shows which node we're on. Root = 0/N (before step 1).
+        // _counter.textContent = `${idx}/${total}`;
         _counter.textContent = ``;
 
         // Q&A from the incoming segment (what was just applied)
@@ -296,21 +288,13 @@ const StepNavigator = (() => {
             _qaList.appendChild(item);
         });
 
-        _btnPrev.disabled = _isRunning || atRoot;
+        _btnPrev.disabled = atRoot;
 
-        if (_isRunning) {
-            _btnNext.textContent = '…';
-            _btnNext.disabled    = true;
-        } else {
-            _btnNext.textContent = atLeaf ? '✓' : '→';
-            // Enabled whenever there is somewhere to go: a step waiting for
-            // confirmation, a failed step to skip past, or an already-executed
-            // edge to navigate through on a completed chain.
-            _btnNext.disabled = atLeaf && !_advanceResolve;
-        }
+        _btnNext.textContent = atLeaf ? '✓' : '→';
+        _btnNext.disabled    = atLeaf && !_advanceResolve && !_gateCallback;
 
-        _btnEdit.disabled = _isRunning || atRoot;
-        _btnAsk.disabled  = _isRunning || atRoot;
+        _btnEdit.disabled = atRoot;
+        _btnAsk.disabled  = atRoot;
     }
 
     // ── Graph render — git-style SVG ──────────────────────────────────────────
