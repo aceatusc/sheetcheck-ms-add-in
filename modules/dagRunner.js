@@ -207,6 +207,18 @@ const DagRunner = (() => {
         return chain.currentNodeId;
     }
 
+    /**
+     * After a step fails, advance currentNodeId to the destination node
+     * so the execution loop can continue to the next step.
+     */
+    function advancePastFailed(chainId) {
+        const chain = getChain(chainId);
+        if (!chain) return;
+        const outgoing = DagStore.edgesFrom(chain.currentNodeId);
+        const edge = _mainEdge(chain, outgoing);
+        if (edge) chain.currentNodeId = edge.to;
+    }
+
     // ── Edit branching ────────────────────────────────────────────────────────
 
     /**
@@ -486,6 +498,7 @@ const DagRunner = (() => {
         stepBack,
         navigateTo,
         applyEdit,
+        advancePastFailed,
         buildRenderGraph,
     };
 })();

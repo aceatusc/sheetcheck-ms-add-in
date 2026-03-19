@@ -44,6 +44,7 @@ const RubricManager = (() => {
     // ── State ─────────────────────────────────────────────────────────────────
     let _rubric        = { hard_requirements: [], soft_requirements: [] };
     let _advanceResolve = null;
+    let _advanceReject  = null;
     let _dragId        = null;
     let _dragType      = null;
 
@@ -55,7 +56,8 @@ const RubricManager = (() => {
 
     function setRubric(rubric) {
         _rubric = rubric || { hard_requirements: [], soft_requirements: [] };
-        _hardList.innerHTML = '';  // clear loading placeholder
+        // Clear loading placeholder from panel container
+        _panel?.querySelector('.rubric-loading')?.remove();
         _render();
     }
 
@@ -90,17 +92,28 @@ const RubricManager = (() => {
         _desc.textContent    = 'Review and edit the requirements below, then click Start to begin.';
         _expl.textContent    = '';
         _qaList.innerHTML    = '';
-        // Show loading placeholder until rubric arrives
-        _hardList.innerHTML = '<div class="rubric-loading">Generating requirements…</div>';
+        // Show loading placeholder in the panel container until rubric arrives
+        _hardList.innerHTML = '';
         _softList.innerHTML = '';
+        if (_panel) {
+            let _loadingEl = _panel.querySelector('.rubric-loading');
+            if (!_loadingEl) {
+                _loadingEl = document.createElement('div');
+                _loadingEl.className = 'rubric-loading';
+                _loadingEl.textContent = 'Generating requirements…';
+                _panel.insertBefore(_loadingEl, _panel.firstChild);
+            }
+        }
     }
 
-    /** Returns a promise that resolves when user clicks Start →. */
+    /** Returns a promise that resolves when user clicks Start →.
+     *  Rejects with DismissedError if the user closes the navigator. */
     function waitForGate() {
-        return new Promise(resolve => {
+        return new Promise((resolve, reject) => {
             _advanceResolve = resolve;
+            _advanceReject  = reject;
             StepNavigator.setGateMode(() => {
-                if (_advanceResolve) { const r = _advanceResolve; _advanceResolve = null; r(); }
+                if (_advanceResolve) { const r = _advanceResolve; _advanceResolve = null; _advanceReject = null; r(); }
                 StepNavigator.dismissGate('rubric');
                 showPanel(false);
             });
@@ -395,5 +408,21 @@ const RubricManager = (() => {
         _btnAsk.disabled  = true;
     }
 
-    return { init, setRubric, getRubric, showPanel, showRubricGate, waitForGate, showVerifyResults };
+    /** Called by StepNavigator.dismiss() to abort any pending gate promise. */
+    function rejectGate() {
+        _panel?.querySelector('.rubric-loading')?.remove();
+        showPanel(false);
+        if (_advanceReject) {
+            const rj = _advanceReject;
+            _advanceResolve = null; _advanceReject = null;
+            rj(new Error('dismissed'));
+        }
+        if (_advanceResolve) {
+            const r = _advanceResolve;
+            _advanceResolve = null;
+            r();  // also resolve plain advance promises
+        }
+    }
+
+    return { init, setRubric, getRubric, showPanel, showRubricGate, waitForGate, rejectGate, showVerifyResults };
 })();

@@ -136,8 +136,10 @@ const StepNavigator = (() => {
         _chatPanel.classList.remove('nav-active');
         _closePanel();
         _gateCallback = null;
-        // Resolve the pending promise so awaiting callers unblock,
-        // but executionEngine checks _dismissed before continuing.
+        // Reject any pending rubric/verify gate promise so chatManager catches it
+        // and calls _setBusy(false), re-enabling the chat input.
+        try { RubricManager.rejectGate(); } catch (_) {}
+        // Resolve any pending step advance (executionEngine checks _dismissed after).
         _resolve();
     }
 

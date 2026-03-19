@@ -97,7 +97,10 @@ const ChatManager = (() => {
 
         } catch (err) {
             _showTyping(false);
-            _appendMessage('agent', `⚠️ ${err.message}`);
+            // 'dismissed' is intentional — just re-enable chat silently
+            if (err.message !== 'dismissed') {
+                _appendMessage('agent', `⚠️ ${err.message}`);
+            }
         }
 
         _setBusy(false);
