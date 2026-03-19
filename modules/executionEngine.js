@@ -53,8 +53,8 @@ const ExecutionEngine = (() => {
                 // The red edge in the graph is enough; the loop continues to the next step.
                 _log('err', `✗ ${err.message}`);
                 _setStatus('error');
-                const failedEdges = DagStore.edgesFrom(current.currentNodeId);
-                if (failedEdges[0]) DagStore.markEdge(failedEdges[0].id, { executed: true, failed: true });
+                const failedEdges = (current.store || DagStore).edgesFrom(current.currentNodeId);
+                if (failedEdges[0]) (current.store || DagStore).markEdge(failedEdges[0].id, { executed: true, failed: true });
                 if (StepNavigator.isDismissed()) break;
                 // Advance currentNodeId past the failed step so the loop continues
                 DagRunner.advancePastFailed(chainId);

@@ -45,8 +45,14 @@ const ChatManager = (() => {
         _appendMessage('user', text);
         _clearInput();
 
+        // Each send gets a fresh isolated run — reset shared module state
+        RubricManager.reset();
+
         try {
             const wsCtx = await WorksheetContext.gather(['selection', 'sheet']);
+            const sheetName = wsCtx?.sheetName || 'Sheet1';
+            // Create a fresh per-run DAG store (no bleed between runs or sheets)
+            const runStore = DagStore.create();
 
             // 1 & 2. Fire rubric scaffold in parallel — user sees the gate
             //        immediately while the LLM generates requirements in the background.
@@ -73,7 +79,7 @@ const ChatManager = (() => {
             _showTyping(false);
 
             // 4. Register chain and show Start button
-            const chain = DagRunner.prepareChain(text, segments);
+            const chain = DagRunner.prepareChain(text, segments, runStore);
 
             _appendMessage('agent',
                 `Ready — ${segments.length} step${segments.length !== 1 ? 's' : ''} planned.`,

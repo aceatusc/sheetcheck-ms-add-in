@@ -50,6 +50,15 @@ const RubricManager = (() => {
 
     // ── Public ────────────────────────────────────────────────────────────────
 
+    /** Reset all per-run state — called by chatManager before each new run. */
+    function reset() {
+        _rubric = { hard_requirements: [], soft_requirements: [] };
+        _advanceResolve = null;
+        _advanceReject  = null;
+        _panel?.querySelector('.rubric-loading')?.remove();
+        showPanel(false);
+    }
+
     function init() {
         _addBtn?.addEventListener('click', _onAdd);
     }
@@ -424,5 +433,5 @@ const RubricManager = (() => {
         }
     }
 
-    return { init, setRubric, getRubric, showPanel, showRubricGate, waitForGate, rejectGate, showVerifyResults };
+    return { init, reset, setRubric, getRubric, showPanel, showRubricGate, waitForGate, rejectGate, showVerifyResults };
 })();
