@@ -82,6 +82,33 @@ const ExecutionEngine = (() => {
         }
 
         await RubricManager.showVerifyResults();
+
+        // ── Review loop ────────────────────────────────────────────────────
+        // Identical to the execution loop above — waitForNext keeps
+        // _advanceResolve active so → / ← / graph-click work normally.
+        // stepForward re-runs the code on each → click, same as first time.
+        while (!StepNavigator.isDismissed()) {
+            const rc = DagRunner.getChain(chainId);
+            if (!rc) break;
+            const rcOut = (rc.store || DagStore).edgesFrom(rc.currentNodeId);
+            if (!rcOut.length) {
+                await StepNavigator.waitForNext();
+                break;
+            }
+            await StepNavigator.waitForNext();
+            if (StepNavigator.isDismissed()) break;
+            StepNavigator.markRunning();
+            try {
+                const r = await DagRunner.stepForward(chainId);
+                if (!r) break;
+                _log('ok', `↺ ${r.segment.description}`);
+                StepNavigator.refreshGraph();
+            } catch (err) {
+                _log('err', `✗ ${err.message}`);
+                DagRunner.advancePastFailed(chainId);
+                StepNavigator.refreshGraph();
+            }
+        }
     }
 
     // ── Private helpers ───────────────────────────────────────────────────────
