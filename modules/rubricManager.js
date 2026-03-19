@@ -55,6 +55,10 @@ const RubricManager = (() => {
         _rubric = { hard_requirements: [], soft_requirements: [] };
         _advanceResolve = null;
         _advanceReject  = null;
+        // Clear verify results from previous run
+        if (_verifyEl) _verifyEl.innerHTML = '';
+        // Restore static elements hidden during verify
+        _staticEls().forEach(el => { if (el) el.style.display = ''; });
         _panel?.querySelector('.rubric-loading')?.remove();
         showPanel(false);
     }

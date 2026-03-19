@@ -164,6 +164,17 @@ const StepNavigator = (() => {
         if (_advanceResolve) {
             _overlay.classList.remove('failed');
             _resolve();
+            return;
+        }
+
+        // Post-execution: navigate forward along an already-executed edge
+        const chain = DagRunner.getChain(_chainId);
+        if (!chain) return;
+        const store = chain.store || DagStore;
+        const nextEdge = store.edgesFrom(chain.currentNodeId).find(e => e.executed);
+        if (nextEdge) {
+            chain.currentNodeId = nextEdge.to;
+            _render();
         }
     }
 
@@ -270,7 +281,6 @@ const StepNavigator = (() => {
 
         // Counter: shows which node we're on. Root = 0/N (before step 1).
         _counter.textContent = `${idx}`;
-        // _counter.textContent = `${idx}/${total}`;
 
         // Q&A from the incoming segment (what was just applied)
         _qaList.innerHTML = '';
@@ -288,7 +298,13 @@ const StepNavigator = (() => {
             _btnNext.disabled    = true;
         } else {
             _btnNext.textContent = atLeaf ? '✓' : '→';
-            _btnNext.disabled    = !_advanceResolve && !isFailed;
+            // Enable if: waiting for user to advance (waitForNext active),
+            // OR step failed (so user can proceed past it),
+            // OR the current node has an outgoing executed edge the user
+            //    can navigate forward through (reviewing a finished chain).
+            const hasForward = !atLeaf && (chain.store || DagStore)
+                .edgesFrom(chain.currentNodeId).some(e => e.executed);
+            _btnNext.disabled = !_advanceResolve && !isFailed && !hasForward;
         }
 
         _btnEdit.disabled = _isRunning || atRoot;
