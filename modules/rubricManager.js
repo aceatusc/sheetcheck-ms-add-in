@@ -90,7 +90,7 @@ const RubricManager = (() => {
         showPanel(true);
         _render();
 
-        _btnNext.textContent = 'Start →';
+        _btnNext.textContent = '→';
         _btnNext.disabled    = false;
         _badge.textContent   = 'Review Requirements';
         _counter.textContent = '';
@@ -112,7 +112,7 @@ const RubricManager = (() => {
         }
     }
 
-    /** Returns a promise that resolves when user clicks Start →.
+    /** Returns a promise that resolves when user clicks →.
      *  Rejects with DismissedError if the user closes the navigator. */
     function waitForGate() {
         return new Promise((resolve, reject) => {
