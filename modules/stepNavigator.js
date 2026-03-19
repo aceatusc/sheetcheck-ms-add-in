@@ -97,7 +97,6 @@ const StepNavigator = (() => {
     }
 
     async function markFailed(errorMsg) {
-        _isRunning = false;
         _overlay.classList.remove('running');
         _overlay.classList.add('visible', 'failed');
         _chatPanel.classList.add('nav-active');
@@ -112,7 +111,6 @@ const StepNavigator = (() => {
     }
 
     async function waitForNext() {
-        _isRunning = false;
         _overlay.classList.remove('running');
         _overlay.classList.add('visible');
         _chatPanel.classList.add('nav-active');
@@ -126,7 +124,6 @@ const StepNavigator = (() => {
 
     function dismiss() {
         _dismissed = true;   // signals executionEngine to stop looping
-        _isRunning = false;
         _overlay.classList.remove('visible', 'running', 'failed', 'rubric-gate', 'verify-gate');
         _chatPanel.classList.remove('nav-active');
         _closePanel();
@@ -262,7 +259,7 @@ const StepNavigator = (() => {
             _ranges.appendChild(c);
         });
 
-        if (atRoot && !_isRunning) {
+        if (atRoot) {
             _desc.textContent = 'Original sheet — no changes applied yet.';
             _expl.textContent = next ? `Next: ${next.description}` : '';
         } else if (displaySeg) {
