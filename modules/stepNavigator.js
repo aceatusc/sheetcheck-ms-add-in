@@ -167,15 +167,26 @@ const StepNavigator = (() => {
             return;
         }
 
-        // Post-execution: navigate forward along an already-executed edge
+        // Post-execution replay: re-run the next step just like during live execution
         const chain = DagRunner.getChain(_chainId);
         if (!chain) return;
         const store = chain.store || DagStore;
-        const nextEdge = store.edgesFrom(chain.currentNodeId).find(e => e.executed);
-        if (nextEdge) {
-            chain.currentNodeId = nextEdge.to;
+        if (!store.edgesFrom(chain.currentNodeId).some(e => e.executed)) return;
+
+        _isRunning = true;
+        _overlay.classList.add('running');
+        _render();
+
+        DagRunner.stepForward(_chainId).then(result => {
+            _isRunning = false;
+            _overlay.classList.remove('running');
+            if (result) _render();
+        }).catch(err => {
+            _isRunning = false;
+            _overlay.classList.remove('running');
+            ExecutionEngine.log('err', `✗ ${err.message}`);
             _render();
-        }
+        });
     }
 
     /**
