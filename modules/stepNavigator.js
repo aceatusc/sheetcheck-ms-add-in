@@ -150,10 +150,31 @@ const StepNavigator = (() => {
 
     // ── Navigation ────────────────────────────────────────────────────────────
 
+    // ── Navigation — all three entry points funnel through _navigateTo ──────
+    //
+    // _onNext, _onPrev, and _onNodeClick are all the same operation:
+    // go to a target node. _navigateTo is the single implementation.
+    // The only special cases for _onNext are the gate/advance-resolve paths
+    // which don't involve sheet navigation at all.
+
+    async function _navigateTo(nodeId) {
+        if (_isRunning) return;
+        _gateCallback = null;
+        _overlay.classList.remove('verify-gate', 'rubric-gate', 'failed');
+        try {
+            await DagRunner.navigateTo(_chainId, nodeId);
+            _render();
+            await _focusRanges();
+        } catch (err) {
+            ExecutionEngine.log('err', `✗ Navigate failed: ${err.message}`);
+            _render();
+        }
+    }
+
     function _onNext() {
         if (_isRunning) return;
 
-        // Gate mode: rubric-gate or verify-gate — delegate entirely to the registered callback
+        // Gate callbacks (rubric-gate / verify-gate) take priority
         if (_gateCallback) {
             const cb = _gateCallback;
             _gateCallback = null;
@@ -161,39 +182,38 @@ const StepNavigator = (() => {
             return;
         }
 
+        // Live execution waiting for user confirmation
         if (_advanceResolve) {
             _overlay.classList.remove('failed');
             _resolve();
             return;
         }
 
-        // Post-execution replay: re-run the next step just like during live execution
+        // Otherwise: navigate to the next node (replay or normal forward step)
         const chain = DagRunner.getChain(_chainId);
         if (!chain) return;
-        const store = chain.store || DagStore;
-        if (!store.edgesFrom(chain.currentNodeId).some(e => e.executed)) return;
+        const store  = chain.store || DagStore;
+        const edges  = store.edgesFrom(chain.currentNodeId);
+        const edge   = edges.find(e => new Set(chain.edgeIds).has(e.id)) || edges[0];
+        if (edge) _navigateTo(edge.to);
+    }
 
-        _isRunning = true;
-        _overlay.classList.add('running');
-        _render();
+    function _onPrev() {
+        const chain = DagRunner.getChain(_chainId);
+        if (!chain) return;
+        const store   = chain.store || DagStore;
+        const incoming = store.edgesTo(chain.currentNodeId);
+        const edge    = incoming.find(e => e.executed) || incoming[0];
+        if (edge) _navigateTo(edge.from);
+    }
 
-        DagRunner.stepForward(_chainId).then(result => {
-            _isRunning = false;
-            _overlay.classList.remove('running');
-            if (result) _render();
-        }).catch(err => {
-            _isRunning = false;
-            _overlay.classList.remove('running');
-            ExecutionEngine.log('err', `✗ ${err.message}`);
-            _render();
-        });
+    async function _onNodeClick(nodeId) {
+        _navigateTo(nodeId);
     }
 
     /**
      * Register a one-shot callback for the next → click.
      * Called by RubricManager.showRubricGate() and showVerifyResults().
-     * @param {'rubric'|'verify'} _mode  (informational, unused internally)
-     * @param {Function}          cb     called when → is clicked
      */
     function setGateMode(cb) {
         _gateCallback = cb;
@@ -203,37 +223,6 @@ const StepNavigator = (() => {
     function dismissGate(type) {
         _overlay.classList.remove(`${type}-gate`, 'visible');
         _chatPanel.classList.remove('nav-active');
-    }
-
-    function _onPrev() {
-        if (_isRunning) return;
-        _gateCallback = null;
-        _overlay.classList.remove('verify-gate', 'rubric-gate');
-        DagRunner.stepBack(_chainId)
-            .then(() => {
-                _overlay.classList.remove('failed');
-                _render();
-            })
-            .catch(err => {
-                ExecutionEngine.log('err', `✗ Step back failed: ${err.message}`);
-                _render();
-            });
-    }
-
-    async function _onNodeClick(nodeId) {
-        if (_isRunning) return;
-        // Clear any pending gate callback — navigating via graph bypasses gates
-        _gateCallback = null;
-        _overlay.classList.remove('verify-gate', 'rubric-gate');
-        try {
-            await DagRunner.navigateTo(_chainId, nodeId);
-            _overlay.classList.remove('failed');
-            _render();
-            await _focusRanges();
-        } catch (err) {
-            ExecutionEngine.log('err', `✗ Navigate failed: ${err.message}`);
-            _render();
-        }
     }
 
     function _resolve() {
@@ -296,7 +285,7 @@ const StepNavigator = (() => {
         }
 
         // Counter: shows which node we're on. Root = 0/N (before step 1).
-        _counter.textContent = `${idx}`;
+        _counter.textContent = ``;
 
         // Q&A from the incoming segment (what was just applied)
         _qaList.innerHTML = '';
