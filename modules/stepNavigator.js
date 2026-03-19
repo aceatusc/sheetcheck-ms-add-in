@@ -298,13 +298,10 @@ const StepNavigator = (() => {
             _btnNext.disabled    = true;
         } else {
             _btnNext.textContent = atLeaf ? '✓' : '→';
-            // Enable if: waiting for user to advance (waitForNext active),
-            // OR step failed (so user can proceed past it),
-            // OR the current node has an outgoing executed edge the user
-            //    can navigate forward through (reviewing a finished chain).
-            const hasForward = !atLeaf && (chain.store || DagStore)
-                .edgesFrom(chain.currentNodeId).some(e => e.executed);
-            _btnNext.disabled = !_advanceResolve && !isFailed && !hasForward;
+            // Enabled whenever there is somewhere to go: a step waiting for
+            // confirmation, a failed step to skip past, or an already-executed
+            // edge to navigate through on a completed chain.
+            _btnNext.disabled = atLeaf && !_advanceResolve;
         }
 
         _btnEdit.disabled = _isRunning || atRoot;
