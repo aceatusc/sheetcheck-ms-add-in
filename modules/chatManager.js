@@ -50,8 +50,7 @@ const ChatManager = (() => {
 
         try {
             const wsCtx = await WorksheetContext.gather(['selection', 'sheet']);
-            const sheetName = wsCtx?.sheetName || 'Sheet1';
-            // Create a fresh per-run DAG store (no bleed between runs or sheets)
+            // Fresh isolated store per run — no bleed between runs or worksheets
             const runStore = DagStore.create();
 
             // 1 & 2. Fire rubric scaffold in parallel — user sees the gate

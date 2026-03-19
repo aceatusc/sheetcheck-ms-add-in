@@ -82,14 +82,7 @@ const RubricManager = (() => {
         if (visible) _render();
     }
 
-    /**
-     * Show the "Review Requirements" gate before execution.
-     * Resolves when the user clicks Start →.
-     *
-     * Registers a one-shot gate callback on StepNavigator so the next →
-     * click resolves the promise — no shared boolean flag needed between modules.
-     */
-    /** Show the gate UI immediately (non-blocking). */
+    /** Show the rubric gate immediately. Rubric loads in parallel via setRubric(). */
     function showRubricGate() {
         _lockNav();
         _overlay.classList.add('visible', 'rubric-gate');
@@ -97,7 +90,7 @@ const RubricManager = (() => {
         showPanel(true);
         _render();
 
-        _btnNext.textContent = '→';
+        _btnNext.textContent = 'Start →';
         _btnNext.disabled    = false;
         _badge.textContent   = 'Review Requirements';
         _counter.textContent = '';
@@ -139,7 +132,7 @@ const RubricManager = (() => {
      */
     async function showVerifyResults() {
         _lockNav();
-        _overlay.classList.remove('failed', 'running');
+        _overlay.classList.remove('failed');
         _overlay.classList.add('visible', 'verify-gate');
         _chatPanel.classList.add('nav-active');
 
@@ -150,9 +143,7 @@ const RubricManager = (() => {
         _ranges.innerHTML    = '';
         _qaList.innerHTML    = '';
 
-        // Register gate callback NOW so _renderCard enables the button immediately
-        // via the _gateCallback check, even before verify results load.
-        _advanceResolve = null;
+        // Register gate NOW so _renderCard enables the ✓ button immediately.
         const gatePromise = new Promise((resolve, reject) => {
             _advanceResolve = resolve;
             _advanceReject  = reject;

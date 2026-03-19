@@ -97,7 +97,6 @@ const StepNavigator = (() => {
     }
 
     async function markFailed(errorMsg) {
-        _overlay.classList.remove('running');
         _overlay.classList.add('visible', 'failed');
         _chatPanel.classList.add('nav-active');
 
@@ -111,7 +110,6 @@ const StepNavigator = (() => {
     }
 
     async function waitForNext() {
-        _overlay.classList.remove('running');
         _overlay.classList.add('visible');
         _chatPanel.classList.add('nav-active');
         _askHistory = [];
@@ -140,14 +138,7 @@ const StepNavigator = (() => {
     /** Re-render after DagRunner mutates chain state (public). */
     function refreshGraph() { _render(); }
 
-    // ── Navigation ────────────────────────────────────────────────────────────
-
-    // ── Navigation — all three entry points funnel through _navigateTo ──────
-    //
-    // _onNext, _onPrev, and _onNodeClick are all the same operation:
-    // go to a target node. _navigateTo is the single implementation.
-    // The only special cases for _onNext are the gate/advance-resolve paths
-    // which don't involve sheet navigation at all.
+    // ── Navigation — _onNext/_onPrev/_onNodeClick all funnel through _navigateTo ─
 
     async function _navigateTo(nodeId) {
         _gateCallback = null;
@@ -197,9 +188,7 @@ const StepNavigator = (() => {
         if (edge) _navigateTo(edge.from);
     }
 
-    async function _onNodeClick(nodeId) {
-        _navigateTo(nodeId);
-    }
+    function _onNodeClick(nodeId) { _navigateTo(nodeId); }
 
     /**
      * Register a one-shot callback for the next → click.
@@ -272,9 +261,7 @@ const StepNavigator = (() => {
             }
         }
 
-        // Counter: shows which node we're on. Root = 0/N (before step 1).
-        // _counter.textContent = `${idx}/${total}`;
-        _counter.textContent = ``;
+        _counter.textContent = '';
 
         // Q&A from the incoming segment (what was just applied)
         _qaList.innerHTML = '';
@@ -600,7 +587,7 @@ const StepNavigator = (() => {
      * No LLM call — instant. Updates seg.parameters[idx].value so subsequent
      * opens of the Edit panel show the new value.
      */
-    async function _applyParam(seg, idx, rawValue, btn) {
+    async function _applyParam(seg, idx, rawValue, inp) {
         if (!seg?.code) return;
         const p      = seg.parameters[idx];
         const oldVal = p.value;
@@ -639,7 +626,7 @@ const StepNavigator = (() => {
         } catch (err) {
             inp.style.borderColor = 'rgba(245,100,60,0.8)';
             setTimeout(() => { inp.style.borderColor = ''; }, 800);
-        } finally {}
+        }
     }
 
     function _escapeRegex(str) {
@@ -729,10 +716,7 @@ const StepNavigator = (() => {
         return e?.segment || null;
     }
 
-    /**
-     * Segment for the NEXT step — the outgoing edge from currentNodeId.
-     * Used by markRunning to show what is about to be applied.
-     */
+    /** Segment for the next step — outgoing edge from currentNodeId. */
     function _nextSegment(chain) {
         if (!chain) return null;
         const outgoing   = (chain.store || DagStore).edgesFrom(chain.currentNodeId);

@@ -111,11 +111,7 @@ const DagRunner = (() => {
         return { edge, segment: edge.segment };
     }
 
-    /**
-     * Restore the snapshot stored on the source node (edge.from),
-     * un-mark the edge, and retreat currentNodeId.
-     * Returns { edge, segment } or null if already at root.
-     */
+    /** Step backward one hop: restore snapshot, un-mark edge, retreat currentNodeId. */
     async function stepBack(chainId) {
         const chain = getChain(chainId);
         if (!chain) throw new Error('Unknown chain.');
@@ -144,19 +140,7 @@ const DagRunner = (() => {
         return { edge, segment: edge.segment };
     }
 
-    /**
-     * Navigate to an arbitrary node by executing the BFS shortest path.
-     *
-     * Each hop runs the SPECIFIC edge found by BFS — not re-derived via
-     * stepForward/stepBack which would follow the wrong branch.
-     *
-     * Backward hop: restore snapshot from edge.from, un-mark edge.
-     * Forward hop:  capture snapshot on current node, run edge.segment.code,
-     *               mark edge executed, advance currentNodeId.
-     *
-     * After arrival, chain.edgeIds is updated to reflect the path through
-     * the target node so subsequent stepForward calls continue correctly.
-     */
+    /** Navigate to any node via BFS. Forward hops re-run code; backward hops restore snapshots. */
     async function navigateTo(chainId, targetNodeId) {
         const chain = getChain(chainId);
         if (!chain) throw new Error('Unknown chain.');

@@ -19,8 +19,6 @@ const ExecutionEngine = (() => {
         _setStatus('running');
         _log('info', `Starting execution: ${chain.segments.length} segment(s)`);
 
-        const total = chain.segments.length;
-
         while (true) {
             if (StepNavigator.isDismissed()) break;  // user closed the navigator
 
@@ -29,8 +27,6 @@ const ExecutionEngine = (() => {
 
             const outgoing = (current.store || DagStore).edgesFrom(current.currentNodeId);
             if (!outgoing.length) break;
-
-            const stepIdx = current.nodeIds.indexOf(current.currentNodeId);
 
             if (StepNavigator.isDismissed()) break;
 
