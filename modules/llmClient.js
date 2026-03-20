@@ -10,10 +10,38 @@ const LLMClient = (() => {
         return { 'Content-Type': 'application/json', 'X-Addin-Secret': SHARED_SECRET };
     }
 
+    // Timeout per endpoint type (ms). Larger models on /code and /edit can
+    // take several minutes; Q&A and chat are much faster.
+    const TIMEOUTS = {
+        '/code':            300_000,   // 5 min
+        '/edit':            300_000,   // 5 min
+        '/rubric/verify':    60_000,   // 1 min
+        '/rubric/scaffold':  60_000,   // 1 min
+        '/ask':              30_000,   // 30 s
+        '/chat':             30_000,   // 30 s
+    };
+    const DEFAULT_TIMEOUT = 120_000;   // 2 min fallback
+
     async function _post(path, body) {
-        const res = await fetch(`${BASE_URL}${path}`, {
-            method: 'POST', headers: _headers(), body: JSON.stringify(body),
-        });
+        const ms         = TIMEOUTS[path] ?? DEFAULT_TIMEOUT;
+        const controller = new AbortController();
+        const timer      = setTimeout(() => controller.abort(), ms);
+
+        let res;
+        try {
+            res = await fetch(`${BASE_URL}${path}`, {
+                method: 'POST', headers: _headers(), body: JSON.stringify(body),
+                signal: controller.signal,
+            });
+        } catch (err) {
+            if (err.name === 'AbortError') {
+                throw new Error(`Request timed out after ${ms / 1000}s — the model is taking too long. Try again or switch to a faster model.`);
+            }
+            throw err;
+        } finally {
+            clearTimeout(timer);
+        }
+
         if (!res.ok) {
             const e = await res.json().catch(() => ({}));
             throw new Error(e.error || `Server error ${res.status}`);
