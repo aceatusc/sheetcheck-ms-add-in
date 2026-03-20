@@ -377,8 +377,10 @@
     text-overflow: unset !important;
 }
 
-
 .rubric-detail {
     font-size: 10.5px; color: rgba(255,255,255,0.7);
     padding: 3px 0 2px 20px; line-height: 1.4; display: none;
+}
+.step-manual-steps {
+    white-space: pre-wrap; /* Maintains newlines and wraps text naturally */
 }
