@@ -22,33 +22,34 @@ const LLMClient = (() => {
     }
 
     /** Generate code segments for a task. */
-    async function generateCode(message, wsContext, rubric = null) {
-        const body = { message, context: wsContext };
+    async function generateCode(message, wsContext, rubric = null, chatHistory = []) {
+        const body = { message, context: wsContext, chat_history: chatHistory };
         if (rubric) body.rubric = rubric;
         const data = await _post('/code', body);
         return data.segments;
     }
 
     /** Follow-up Q&A about a step. */
-    async function ask(message, wsContext, step, history = []) {
-        return _post('/ask', { message, context: wsContext, step, history });
+    async function ask(message, wsContext, step, history = [], chatHistory = []) {
+        return _post('/ask', { message, context: wsContext, step, history, chat_history: chatHistory });
     }
 
     /** Edit a segment and regenerate the remainder of the chain.
      *  Returns an array: [editedSeg, ...regeneratedRemainder] */
-    async function edit(message, wsContext, segment, remainingSegments = []) {
+    async function edit(message, wsContext, segment, remainingSegments = [], chatHistory = []) {
         const data = await _post('/edit', {
             message,
             context: wsContext,
             segment,
             remaining_segments: remainingSegments,
+            chat_history: chatHistory,
         });
         return data.segments;
     }
 
     /** Scaffold an initial rubric for the task. */
-    async function rubricScaffold(message, wsContext) {
-        return _post('/rubric/scaffold', { message, context: wsContext });
+    async function rubricScaffold(message, wsContext, chatHistory = []) {
+        return _post('/rubric/scaffold', { message, context: wsContext, chat_history: chatHistory });
     }
 
     /** Verify worksheet against rubric. */
@@ -61,5 +62,18 @@ const LLMClient = (() => {
         return _post('/chat', { message, context: wsContext });
     }
 
-    return { generateCode, ask, edit, rubricScaffold, rubricVerify, chat };
+    // -- Exposed for InteractionLogger ----------------------------------------
+
+    /** Full URL for the interactions endpoint (used with sendBeacon). */
+    function interactionsUrl() {
+        return `${BASE_URL}/interactions`;
+    }
+
+    /** Auth headers without Content-Type (caller sets it via Blob for sendBeacon). */
+    function authHeaders() {
+        return { 'X-Addin-Secret': SHARED_SECRET };
+    }
+
+    return { generateCode, ask, edit, rubricScaffold, rubricVerify, chat,
+             interactionsUrl, authHeaders };
 })();

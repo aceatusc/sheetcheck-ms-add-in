@@ -254,8 +254,12 @@ const StepNavigator = (() => {
         } else if (displaySeg) {
             _desc.textContent = displaySeg.description || '';
             if (isFailed && displaySeg._errorMsg) {
+                const manualHint = displaySeg.manual_steps
+                    ? `<div class="step-manual-steps"><strong>Do this manually:</strong><br>${displaySeg.manual_steps}</div>`
+                    : '';
                 _expl.innerHTML = `<span style="opacity:0.75">${displaySeg.explanation || ''}</span>`
-                    + `<div class="step-error-msg">⚠ ${displaySeg._errorMsg}</div>`;
+                    + `<div class="step-error-msg">⚠ ${displaySeg._errorMsg}</div>`
+                    + manualHint;
             } else {
                 _expl.textContent = displaySeg.explanation || '';
             }
@@ -443,7 +447,8 @@ const StepNavigator = (() => {
             const wsCtx = await WorksheetContext.gather(['sheet']);
             const res   = await LLMClient.ask(msg, wsCtx,
                 { description: seg?.description, explanation: seg?.explanation },
-                _askHistory);
+                _askHistory,
+                ChatHistory.get());
             _askHistory.push({ q: msg, a: res.answer });
             _appendAskBubble('agent', res.answer);
             _renderAskChips(res.follow_up_questions || []);
@@ -653,7 +658,7 @@ const StepNavigator = (() => {
             const paramPrefix = _collectParamChanges(seg);
             const fullMsg  = paramPrefix + (msg || 'Apply the parameter changes above.');
             const wsCtx    = await WorksheetContext.gather(['sheet']);
-            const newChain = await LLMClient.edit(fullMsg, wsCtx, seg, remaining);
+            const newChain = await LLMClient.edit(fullMsg, wsCtx, seg, remaining, ChatHistory.get());
             _editFeedback.value = '';
 
             DagRunner.applyEdit(_chainId, fromIdx, chain.taskLabel, newChain);
