@@ -22,14 +22,6 @@ const ChatManager = (() => {
         });
         _sendBtn.addEventListener('click', _handleSend);
 
-        // Wire demo buttons — fill the input and submit via normal _handleSend
-        document.querySelectorAll('.demo-btn').forEach(btn => {
-            btn.addEventListener('click', () => {
-                _input.value = 'stub:' + btn.dataset.stub;
-                _handleSend();
-            });
-        });
-
         document.getElementById('execution-header')?.addEventListener('click', () => {
             const panel = document.getElementById('execution-panel');
             const icon  = document.getElementById('execution-toggle-icon');
