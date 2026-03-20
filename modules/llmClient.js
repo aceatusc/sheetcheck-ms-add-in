@@ -53,13 +53,13 @@ const LLMClient = (() => {
     }
 
     /** Verify worksheet against rubric. */
-    async function rubricVerify(rubric, wsContext) {
-        return _post('/rubric/verify', { rubric, context: wsContext });
+    async function rubricVerify(rubric, wsContext, chatHistory = []) {
+        return _post('/rubric/verify', { rubric, context: wsContext, chat_history: chatHistory });
     }
 
     /** General chat proxy. */
-    async function chat(message, wsContext) {
-        return _post('/chat', { message, context: wsContext });
+    async function chat(message, wsContext, chatHistory = []) {
+        return _post('/chat', { message, context: wsContext, chat_history: chatHistory });
     }
 
     // -- Exposed for InteractionLogger ----------------------------------------

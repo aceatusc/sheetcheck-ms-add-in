@@ -163,7 +163,7 @@ const RubricManager = (() => {
 
         try {
             const wsCtx = await WorksheetContext.gather(['sheet']);
-            const res   = await LLMClient.rubricVerify(_rubric, wsCtx);
+            const res   = await LLMClient.rubricVerify(_rubric, wsCtx, ChatHistory.get());
 
             // Build a lookup from the verify response
             const resultMap = {};
