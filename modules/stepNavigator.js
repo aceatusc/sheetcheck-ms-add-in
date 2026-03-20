@@ -265,7 +265,7 @@ const StepNavigator = (() => {
                 const manualText = displaySeg?.manual_steps?.trim();
                 const manualHint = manualText
                     ? `<div class="step-manual-steps"><strong>You can do it manually:</strong><br>${manualText}</div>`
-                    : `<div class="step-manual-steps step-manual-steps--none">No manual steps provided — try editing this step or skipping it with →.</div>`;
+                    : `<div class="step-manual-steps step-manual-steps--none">Try editing this step or skipping it with →.</div>`;
                 _expl.innerHTML = `<span style="opacity:0.75">${displaySeg?.explanation || ''}</span>`
                     + (errorMsg ? `<div class="step-error-msg">⚠ ${errorMsg}</div>` : '')
                     + manualHint;
