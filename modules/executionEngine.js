@@ -38,17 +38,17 @@ const ExecutionEngine = (() => {
                 stepOk = true;
                 _log('ok', `✓ ${result.segment.description}`);
             } catch (err) {
-                // Mark the edge red and log — but do NOT pause execution.
-                // The red edge in the graph is enough; the loop continues to the next step.
                 _log('err', `✗ ${err.message}`);
                 _setStatus('error');
                 const failedEdges = (current.store || DagStore).edgesFrom(current.currentNodeId);
                 if (failedEdges[0]) (current.store || DagStore).markEdge(failedEdges[0].id, { executed: true, failed: true });
+                // Pause on the failed node — StepNavigator shows the error message
+                // and the segment's manual_steps guidance so the user can do it by hand.
+                // Execution resumes (advances past the failure) only after they click →.
+                await StepNavigator.markFailed(err.message);
                 if (StepNavigator.isDismissed()) break;
-                // Advance currentNodeId past the failed step so the loop continues
                 DagRunner.advancePastFailed(chainId);
                 StepNavigator.refreshGraph();
-                continue;
             }
 
             if (stepOk) {
@@ -93,6 +93,8 @@ const ExecutionEngine = (() => {
                 StepNavigator.refreshGraph();
             } catch (err) {
                 _log('err', `✗ ${err.message}`);
+                await StepNavigator.markFailed(err.message);
+                if (StepNavigator.isDismissed()) break;
                 DagRunner.advancePastFailed(chainId);
                 StepNavigator.refreshGraph();
             }

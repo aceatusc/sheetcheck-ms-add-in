@@ -22,14 +22,6 @@ const ChatManager = (() => {
         });
         _sendBtn.addEventListener('click', _handleSend);
 
-        // Wire demo buttons — fill the input and submit via normal _handleSend
-        document.querySelectorAll('.demo-btn').forEach(btn => {
-            btn.addEventListener('click', () => {
-                _input.value = 'stub:' + btn.dataset.stub;
-                _handleSend();
-            });
-        });
-
         document.getElementById('execution-header')?.addEventListener('click', () => {
             const panel = document.getElementById('execution-panel');
             const icon  = document.getElementById('execution-toggle-icon');
@@ -45,18 +37,20 @@ const ChatManager = (() => {
         _appendMessage('user', text);
         _clearInput();
 
+        ChatHistory.push(text);
+
         // Each send gets a fresh isolated run — reset shared module state
         RubricManager.reset();
 
         try {
-            const wsCtx = await WorksheetContext.gather(['selection', 'sheet']);
+            const wsCtx = await WorksheetContext.gather(['selection', 'sheet', 'styles', 'charts']);
             // Fresh isolated store per run — no bleed between runs or worksheets
             const runStore = DagStore.create();
 
             // 1 & 2. Fire rubric scaffold in parallel — user sees the gate
             //        immediately while the LLM generates requirements in the background.
             _showTyping(true, 'Creating requirements…');
-            const rubricPromise = LLMClient.rubricScaffold(text, wsCtx).catch(e => {
+            const rubricPromise = LLMClient.rubricScaffold(text, wsCtx, ChatHistory.get()).catch(e => {
                 console.warn('[ChatManager] rubric scaffold failed:', e.message);
                 return null;
             });
@@ -74,7 +68,7 @@ const ChatManager = (() => {
             //    which requirements are hard (must satisfy) vs soft (nice to have)
             _showTyping(true, 'Generating a solution…');
             const rubric   = RubricManager.getRubric();
-            const segments = await LLMClient.generateCode(text, wsCtx, rubric);
+            const segments = await LLMClient.generateCode(text, wsCtx, rubric, ChatHistory.get());
             _showTyping(false);
 
             // 4. Register chain and show Start button

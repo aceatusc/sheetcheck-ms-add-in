@@ -100,8 +100,11 @@ const StepNavigator = (() => {
         _overlay.classList.add('visible', 'failed');
         _chatPanel.classList.add('nav-active');
 
+        // At failure time currentNodeId has NOT advanced (stepForward threw before
+        // setting chain.currentNodeId = edge.to), so the failing segment lives on
+        // the OUTGOING edge from currentNodeId, not the incoming one.
         const chain = DagRunner.getChain(_chainId);
-        const seg   = _currentSegment(chain);
+        const seg   = _nextSegment(chain);   // outgoing = the step that just failed
         if (seg) seg._errorMsg = errorMsg;
 
         const promise = new Promise(resolve => { _advanceResolve = resolve; });
@@ -221,13 +224,15 @@ const StepNavigator = (() => {
         }
 
         const seg   = _currentSegment(chain);   // segment that PRODUCED this state
-        const next  = _nextSegment(chain);       // segment ABOUT to run (for running badge)
+        const next  = _nextSegment(chain);       // segment ABOUT to run / that just failed
         const total = chain.segments.length;
         const idx   = _currentIndex(chain);      // 0-based position of currentNodeId
 
-        const atRoot   = (chain.store || DagStore).edgesTo(chain.currentNodeId).length === 0;
-        const atLeaf   = (chain.store || DagStore).edgesFrom(chain.currentNodeId).length === 0;
-        const isFailed = !!(seg?._errorMsg);
+        const atRoot = (chain.store || DagStore).edgesTo(chain.currentNodeId).length === 0;
+        const atLeaf = (chain.store || DagStore).edgesFrom(chain.currentNodeId).length === 0;
+        // isFailed: check both the incoming segment (already-applied step that errored
+        // on re-run) and the outgoing segment (step that just failed before advancing).
+        const isFailed = !!(seg?._errorMsg) || !!(next?._errorMsg);
 
         // Badge: "Running step N…" / "Step N of M applied" / "Ready — N steps"
         if (atRoot) {
@@ -239,7 +244,9 @@ const StepNavigator = (() => {
         }
 
         // Ranges, description, explanation from current node's incoming segment
-        const displaySeg = seg;
+        // displaySeg: prefer whichever segment carries _errorMsg so the failed
+        // step's description, explanation, and manual_steps are always shown.
+        const displaySeg = (next?._errorMsg ? next : null) || seg;
         _ranges.innerHTML = '';
         (displaySeg?.sheet_context || []).forEach(addr => {
             const c = document.createElement('span');
@@ -253,9 +260,15 @@ const StepNavigator = (() => {
             _expl.textContent = next ? `Next: ${next.description}` : '';
         } else if (displaySeg) {
             _desc.textContent = displaySeg.description || '';
-            if (isFailed && displaySeg._errorMsg) {
-                _expl.innerHTML = `<span style="opacity:0.75">${displaySeg.explanation || ''}</span>`
-                    + `<div class="step-error-msg">⚠ ${displaySeg._errorMsg}</div>`;
+            if (isFailed) {
+                const errorMsg   = displaySeg?._errorMsg || '';
+                const manualText = displaySeg?.manual_steps?.trim();
+                const manualHint = manualText
+                    ? `<div class="step-manual-steps"><strong>You can do it manually:</strong><br>${manualText}</div>`
+                    : `<div class="step-manual-steps step-manual-steps--none">Try editing this step or skipping it with →.</div>`;
+                _expl.innerHTML = `<span style="opacity:0.75">${displaySeg?.explanation || ''}</span>`
+                    + (errorMsg ? `<div class="step-error-msg">⚠ ${errorMsg}</div>` : '')
+                    + manualHint;
             } else {
                 _expl.textContent = displaySeg.explanation || '';
             }
@@ -443,7 +456,8 @@ const StepNavigator = (() => {
             const wsCtx = await WorksheetContext.gather(['sheet']);
             const res   = await LLMClient.ask(msg, wsCtx,
                 { description: seg?.description, explanation: seg?.explanation },
-                _askHistory);
+                _askHistory,
+                ChatHistory.get());
             _askHistory.push({ q: msg, a: res.answer });
             _appendAskBubble('agent', res.answer);
             _renderAskChips(res.follow_up_questions || []);
@@ -653,7 +667,7 @@ const StepNavigator = (() => {
             const paramPrefix = _collectParamChanges(seg);
             const fullMsg  = paramPrefix + (msg || 'Apply the parameter changes above.');
             const wsCtx    = await WorksheetContext.gather(['sheet']);
-            const newChain = await LLMClient.edit(fullMsg, wsCtx, seg, remaining);
+            const newChain = await LLMClient.edit(fullMsg, wsCtx, seg, remaining, ChatHistory.get());
             _editFeedback.value = '';
 
             DagRunner.applyEdit(_chainId, fromIdx, chain.taskLabel, newChain);
