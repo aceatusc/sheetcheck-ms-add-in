@@ -70,22 +70,20 @@ const ExecutionEngine = (() => {
             _log('ok', 'All segments complete.');
         }
 
-        await RubricManager.showVerifyResults();
-
         // ── Review loop ────────────────────────────────────────────────────
-        // Identical to the execution loop above — waitForNext keeps
-        // _advanceResolve active so → / ← / graph-click work normally.
-        // stepForward re-runs the code on each → click, same as first time.
-        while (!StepNavigator.isDismissed()) {
+        // Lets the user navigate back/forward through completed steps.
+        // ✓ button calls dismiss() which sets _dismissed and resolves the
+        // pending waitForNext promise — we check isDismissed() immediately
+        // on the next line so we exit without doing any extra work.
+        while (true) {
+            await StepNavigator.waitForNext();
+            if (StepNavigator.isDismissed()) break;  // ✓ was clicked — exit cleanly
+
             const rc = DagRunner.getChain(chainId);
             if (!rc) break;
             const rcOut = (rc.store || DagStore).edgesFrom(rc.currentNodeId);
-            if (!rcOut.length) {
-                await StepNavigator.waitForNext();
-                break;
-            }
-            await StepNavigator.waitForNext();
-            if (StepNavigator.isDismissed()) break;
+            if (!rcOut.length) break;  // still at leaf after navigation — stop
+
             try {
                 const r = await DagRunner.stepForward(chainId);
                 if (!r) break;

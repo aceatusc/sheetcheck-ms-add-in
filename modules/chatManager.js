@@ -22,6 +22,10 @@ const ChatManager = (() => {
         });
         _sendBtn.addEventListener('click', _handleSend);
 
+        document.getElementById('verify-btn')?.addEventListener('click', () => {
+            AspectManager.open();
+        });
+
         document.getElementById('execution-header')?.addEventListener('click', () => {
             const panel = document.getElementById('execution-panel');
             const icon  = document.getElementById('execution-toggle-icon');
@@ -39,55 +43,26 @@ const ChatManager = (() => {
 
         ChatHistory.push(text);
 
-        // Each send gets a fresh isolated run — reset shared module state
-        RubricManager.reset();
-
         try {
             const wsCtx = await WorksheetContext.gather(['selection', 'sheet', 'styles', 'charts']);
-            // Fresh isolated store per run — no bleed between runs or worksheets
             const runStore = DagStore.create();
 
-            // 1 & 2. Fire rubric scaffold in parallel — user sees the gate
-            //        immediately while the LLM generates requirements in the background.
-            _showTyping(true, 'Creating requirements…');
-            const rubricPromise = LLMClient.rubricScaffold(text, wsCtx, ChatHistory.get()).catch(e => {
-                console.warn('[ChatManager] rubric scaffold failed:', e.message);
-                return null;
-            });
-
-            // Show gate right away with empty rubric; update when ready
-            RubricManager.showRubricGate();
-            rubricPromise.then(rubric => {
-                if (rubric) RubricManager.setRubric(rubric);
-            });
-
-            // Wait for user to click Start in the gate
-            await RubricManager.waitForGate();
-
-            // 3. Generate code — pass the finalised rubric so the LLM knows
-            //    which requirements are hard (must satisfy) vs soft (nice to have)
             _showTyping(true, 'Generating a solution…');
-            const rubric   = RubricManager.getRubric();
-            const segments = await LLMClient.generateCode(text, wsCtx, rubric, ChatHistory.get());
+            const segments = await LLMClient.generateCode(text, wsCtx, null, ChatHistory.get());
             _showTyping(false);
 
-            // 4. Register chain and show Start button
             const chain = DagRunner.prepareChain(text, segments, runStore);
 
             _appendMessage('agent',
                 `Ready — ${segments.length} step${segments.length !== 1 ? 's' : ''} planned.`,
                 { actions: [{ label: '▶ Apply to sheet', primary: true, onClick: async (btn) => {
-                    if (_isBusy) return;
                     btn.disabled    = true;
                     btn.textContent = 'Starting…';
-                    _setBusy(true);
                     try {
-                        // _appendMessage('agent', `Applying ${segments.length} step(s)…`);
                         await DagRunner.start(chain.chainId);
                     } catch (err) {
-                        // _appendMessage('agent', `⚠️ ${err.message}`);
+                        // execution errors handled inside DagRunner/ExecutionEngine
                     } finally {
-                        _setBusy(false);
                         btn.textContent = '▶ Apply to sheet';
                         btn.disabled    = false;
                     }
