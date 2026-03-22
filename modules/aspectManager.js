@@ -69,7 +69,7 @@ const AspectManager = (() => {
             _listEl.innerHTML = `<span class="aspect-error">Populate failed: ${err.message}</span>`;
         } finally {
             _populateBtn.disabled  = false;
-            _populateBtn.innerHTML = '<span class="aspect-btn-icon">⟳</span> Populate';
+            // _populateBtn.innerHTML = '<span class="aspect-btn-icon">⟳</span> Populate';
         }
     }
 
