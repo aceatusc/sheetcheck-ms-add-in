@@ -1,0 +1,326 @@
+/* =============================================
+   Aspect / Verify Panel
+   ============================================= */
+
+.aspect-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(10, 11, 18, 0.6);
+    backdrop-filter: blur(4px);
+    z-index: 2000;
+    display: flex;
+    align-items: flex-end;
+    justify-content: center;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s ease;
+    padding-bottom: 0;
+}
+
+.aspect-overlay.visible {
+    opacity: 1;
+    pointer-events: all;
+}
+
+/* The card slides up from the bottom */
+.aspect-overlay.visible .aspect-card-inner,
+.aspect-overlay > div:not(.aspect-card-inner) {
+    transform: translateY(0);
+}
+
+/* Inner card — lives directly inside overlay as first child via innerHTML */
+.aspect-overlay > div:first-child {
+    width: 100%;
+    max-width: 440px;
+    max-height: 80vh;
+    background: var(--color-surface);
+    border: 1px solid rgba(62, 207, 142, 0.25);
+    border-bottom: none;
+    border-radius: 16px 16px 0 0;
+    padding: 16px 16px 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    overflow-y: auto;
+    box-shadow: 0 -8px 48px rgba(0,0,0,0.6);
+    transform: translateY(30px);
+    transition: transform 0.22s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.aspect-overlay.visible > div:first-child {
+    transform: translateY(0);
+}
+
+/* ── Header ── */
+.aspect-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.aspect-title {
+    font-size: 13px;
+    font-weight: 700;
+    color: #fff;
+    letter-spacing: 0.03em;
+}
+
+.aspect-close {
+    background: none;
+    border: none;
+    color: rgba(255,255,255,0.45);
+    font-size: 14px;
+    cursor: pointer;
+    padding: 2px 6px;
+    border-radius: 4px;
+    transition: color 0.15s, background 0.15s;
+}
+.aspect-close:hover { color: #fff; background: rgba(255,255,255,0.1); }
+
+/* ── Subtitle ── */
+.aspect-subtitle {
+    font-size: 11px;
+    color: rgba(255,255,255,0.5);
+    line-height: 1.5;
+    margin: -4px 0 0;
+}
+
+/* ── Toolbar ── */
+.aspect-toolbar {
+    display: flex;
+    gap: 7px;
+    flex-wrap: wrap;
+}
+
+.aspect-btn {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    border-radius: 8px;
+    font-size: 11.5px;
+    font-weight: 600;
+    padding: 6px 12px;
+    cursor: pointer;
+    border: 1px solid transparent;
+    transition: opacity 0.15s, transform 0.12s, background 0.15s, border-color 0.15s;
+}
+.aspect-btn:hover  { opacity: 0.9; transform: translateY(-1px); }
+.aspect-btn:active { transform: translateY(0); }
+.aspect-btn:disabled { opacity: 0.4; cursor: not-allowed; transform: none; }
+
+.aspect-btn-icon { font-size: 13px; line-height: 1; }
+
+.aspect-btn--populate {
+    background: rgba(79, 142, 247, 0.15);
+    border-color: rgba(79, 142, 247, 0.35);
+    color: #4f8ef7;
+}
+.aspect-btn--populate:hover {
+    background: rgba(79, 142, 247, 0.25);
+    border-color: rgba(79, 142, 247, 0.6);
+}
+
+.aspect-btn--verify {
+    background: rgba(62, 207, 142, 0.15);
+    border-color: rgba(62, 207, 142, 0.35);
+    color: #3ecf8e;
+}
+.aspect-btn--verify:hover {
+    background: rgba(62, 207, 142, 0.25);
+    border-color: rgba(62, 207, 142, 0.6);
+}
+
+.aspect-btn--add {
+    background: rgba(255,255,255,0.08);
+    border-color: rgba(255,255,255,0.15);
+    color: rgba(255,255,255,0.7);
+    margin-left: auto;
+}
+.aspect-btn--add:hover {
+    background: rgba(255,255,255,0.15);
+    border-color: rgba(255,255,255,0.3);
+    color: #fff;
+}
+
+/* ── Aspect list ── */
+.aspect-list {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+}
+
+.aspect-empty {
+    font-size: 11px;
+    color: rgba(255,255,255,0.35);
+    text-align: center;
+    padding: 16px 0 8px;
+    font-style: italic;
+}
+
+.aspect-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 2px;
+    border-radius: 6px;
+    transition: background 0.12s;
+}
+.aspect-row:hover { background: rgba(255,255,255,0.04); }
+
+.aspect-num {
+    font-size: 10px;
+    font-weight: 700;
+    color: rgba(255,255,255,0.3);
+    min-width: 16px;
+    text-align: right;
+    flex-shrink: 0;
+}
+
+.aspect-label-input {
+    flex: 1;
+    background: rgba(0,0,0,0.25);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 6px;
+    color: rgba(255,255,255,0.9);
+    font-family: var(--font-ui);
+    font-size: 11.5px;
+    padding: 5px 9px;
+    outline: none;
+    transition: border-color 0.15s;
+    min-width: 0;
+}
+.aspect-label-input:focus {
+    border-color: rgba(79, 142, 247, 0.6);
+    background: rgba(0,0,0,0.4);
+}
+.aspect-label-input::placeholder { color: rgba(255,255,255,0.25); }
+
+.aspect-del {
+    background: none;
+    border: none;
+    color: rgba(255,255,255,0.25);
+    font-size: 11px;
+    cursor: pointer;
+    padding: 2px 5px;
+    border-radius: 4px;
+    flex-shrink: 0;
+    transition: color 0.15s, background 0.15s;
+}
+.aspect-del:hover { color: var(--color-error); background: rgba(242,95,92,0.1); }
+
+/* ── Results area ── */
+.aspect-results {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding-top: 4px;
+}
+
+.aspect-loading {
+    font-size: 11px;
+    color: rgba(255,255,255,0.4);
+    font-style: italic;
+    padding: 8px 2px;
+    animation: aspectFade 1.2s ease-in-out infinite alternate;
+}
+
+@keyframes aspectFade {
+    from { opacity: 0.3; }
+    to   { opacity: 0.9; }
+}
+
+.aspect-error {
+    font-size: 11px;
+    color: var(--color-error);
+    padding: 6px 2px;
+}
+
+/* Score summary */
+.aspect-score {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 4px 10px;
+    border-bottom: 1px solid rgba(255,255,255,0.08);
+    margin-bottom: 4px;
+}
+.aspect-score-num {
+    font-size: 28px;
+    font-weight: 800;
+    color: #fff;
+    line-height: 1;
+}
+.aspect-score-num.all-met  { color: #3ecf8e; }
+.aspect-score-num.none-met { color: #f5643c; }
+.aspect-score-denom { font-size: 15px; font-weight: 400; color: rgba(255,255,255,0.4); }
+.aspect-score-label { font-size: 12px; color: rgba(255,255,255,0.6); }
+
+/* Result rows */
+.aspect-result-row {
+    display: flex;
+    gap: 10px;
+    padding: 7px 4px;
+    border-radius: 7px;
+    background: rgba(255,255,255,0.03);
+    border: 1px solid rgba(255,255,255,0.06);
+    transition: background 0.12s;
+}
+.aspect-result-row.met   { border-color: rgba(62,207,142,0.2); }
+.aspect-result-row.unmet { border-color: rgba(242,95,92,0.2);  }
+
+.aspect-result-icon {
+    font-size: 13px;
+    flex-shrink: 0;
+    padding-top: 1px;
+    width: 16px;
+    text-align: center;
+}
+.aspect-result-row.met   .aspect-result-icon { color: #3ecf8e; }
+.aspect-result-row.unmet .aspect-result-icon { color: #f5a623; }
+
+.aspect-result-body {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+}
+
+.aspect-result-label {
+    font-size: 12px;
+    color: rgba(255,255,255,0.9);
+    font-weight: 500;
+    line-height: 1.4;
+}
+
+.aspect-result-reason {
+    font-size: 10.5px;
+    color: rgba(255,255,255,0.55);
+    line-height: 1.4;
+}
+
+/* Clickable cell reference chips */
+.aspect-result-refs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin-top: 2px;
+}
+
+.aspect-ref-chip {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    background: rgba(79, 142, 247, 0.15);
+    border: 1px solid rgba(79, 142, 247, 0.3);
+    color: #7ab3ff;
+    padding: 2px 7px;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s, transform 0.12s;
+}
+.aspect-ref-chip:hover {
+    background: rgba(79, 142, 247, 0.3);
+    border-color: rgba(79, 142, 247, 0.6);
+    transform: translateY(-1px);
+}
+.aspect-ref-chip:active { transform: translateY(0); }
