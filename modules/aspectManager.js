@@ -134,7 +134,7 @@ const AspectManager = (() => {
         if (!_aspects.length) {
             const hint = document.createElement('div');
             hint.className   = 'aspect-empty';
-            hint.textContent = 'No aspects yet — click Populate or Add.';
+            hint.textContent = 'No aspects yet — wait for auto-population or Add.';
             _listEl.appendChild(hint);
             return;
         }
