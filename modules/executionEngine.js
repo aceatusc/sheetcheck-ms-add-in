@@ -70,12 +70,9 @@ const ExecutionEngine = (() => {
             _log('ok', 'All segments complete.');
         }
 
-        await RubricManager.showVerifyResults();
-
         // ── Review loop ────────────────────────────────────────────────────
-        // Identical to the execution loop above — waitForNext keeps
-        // _advanceResolve active so → / ← / graph-click work normally.
-        // stepForward re-runs the code on each → click, same as first time.
+        // Lets the user navigate back/forward through completed steps.
+        // Stays active until the navigator is dismissed.
         while (!StepNavigator.isDismissed()) {
             const rc = DagRunner.getChain(chainId);
             if (!rc) break;
