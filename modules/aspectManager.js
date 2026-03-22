@@ -31,15 +31,12 @@ const AspectManager = (() => {
 
     function _buildOverlay() {
         _overlay = document.createElement('div');
-        _overlay.id        = 'aspect-overlay';
-        _overlay.className = 'aspect-overlay';
+        _overlay.id = 'aspect-overlay';
         _overlay.innerHTML = `
-            <div class="aspect-header">
-                <span class="aspect-title">✦ Verify</span>
-                <button class="aspect-close" id="aspect-close-btn">✕</button>
-            </div>
+            <button class="aspect-close" id="aspect-close-btn">✕</button>
+            <div id="aspect-badge" class="aspect-title">Verify</div>
             <p class="aspect-subtitle">
-                Review important aspects of your sheet. Populate based on context or add your own, then run Verify to check each one.
+                Review important aspects of your sheet. Populate from context, add your own, then run Verify.
             </p>
             <div class="aspect-toolbar">
                 <button class="aspect-btn aspect-btn--populate" id="aspect-populate-btn">
@@ -48,9 +45,7 @@ const AspectManager = (() => {
                 <button class="aspect-btn aspect-btn--verify" id="aspect-verify-btn">
                     <span class="aspect-btn-icon">✓</span> Verify
                 </button>
-                <button class="aspect-btn aspect-btn--add" id="aspect-add-btn">
-                    <span class="aspect-btn-icon">+</span> Add
-                </button>
+                <button class="aspect-btn aspect-btn--add" id="aspect-add-btn">+ Add</button>
             </div>
             <div id="aspect-list" class="aspect-list"></div>
             <div id="aspect-results" class="aspect-results"></div>
@@ -67,11 +62,6 @@ const AspectManager = (() => {
         _populateBtn.addEventListener('click', _onPopulate);
         _verifyBtn.addEventListener('click', _onVerify);
         _overlay.querySelector('#aspect-add-btn').addEventListener('click', _onAdd);
-
-        // Click outside to close
-        _overlay.addEventListener('click', e => {
-            if (e.target === _overlay) close();
-        });
     }
 
     // ── Public ────────────────────────────────────────────────────────────────

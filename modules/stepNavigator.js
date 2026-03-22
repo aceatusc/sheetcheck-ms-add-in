@@ -173,12 +173,19 @@ const StepNavigator = (() => {
             return;
         }
 
-        // Otherwise: navigate to the next node (replay or normal forward step)
+        // At the leaf with no pending operation → ✓ means Done, close the navigator
         const chain = DagRunner.getChain(_chainId);
         if (!chain) return;
-        const store  = chain.store || DagStore;
-        const edges  = store.edgesFrom(chain.currentNodeId);
-        const edge   = edges.find(e => new Set(chain.edgeIds).has(e.id)) || edges[0];
+        const store = chain.store || DagStore;
+        const atLeaf = store.edgesFrom(chain.currentNodeId).length === 0;
+        if (atLeaf) {
+            dismiss();
+            return;
+        }
+
+        // Otherwise: navigate to the next node (replay / normal forward step)
+        const edges = store.edgesFrom(chain.currentNodeId);
+        const edge  = edges.find(e => new Set(chain.edgeIds).has(e.id)) || edges[0];
         if (edge) _navigateTo(edge.to);
     }
 
@@ -288,7 +295,7 @@ const StepNavigator = (() => {
         _btnPrev.disabled = atRoot;
 
         _btnNext.textContent = atLeaf ? '✓' : '→';
-        _btnNext.disabled    = atLeaf && !_advanceResolve && !_gateCallback;
+        _btnNext.disabled    = false;  // never disable — ✓ always dismisses at leaf
 
         _btnEdit.disabled = atRoot;
         _btnAsk.disabled  = atRoot;
