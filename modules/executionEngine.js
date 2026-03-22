@@ -72,17 +72,18 @@ const ExecutionEngine = (() => {
 
         // ── Review loop ────────────────────────────────────────────────────
         // Lets the user navigate back/forward through completed steps.
-        // Stays active until the navigator is dismissed.
-        while (!StepNavigator.isDismissed()) {
+        // ✓ button calls dismiss() which sets _dismissed and resolves the
+        // pending waitForNext promise — we check isDismissed() immediately
+        // on the next line so we exit without doing any extra work.
+        while (true) {
+            await StepNavigator.waitForNext();
+            if (StepNavigator.isDismissed()) break;  // ✓ was clicked — exit cleanly
+
             const rc = DagRunner.getChain(chainId);
             if (!rc) break;
             const rcOut = (rc.store || DagStore).edgesFrom(rc.currentNodeId);
-            if (!rcOut.length) {
-                await StepNavigator.waitForNext();
-                break;
-            }
-            await StepNavigator.waitForNext();
-            if (StepNavigator.isDismissed()) break;
+            if (!rcOut.length) break;  // still at leaf after navigation — stop
+
             try {
                 const r = await DagRunner.stepForward(chainId);
                 if (!r) break;

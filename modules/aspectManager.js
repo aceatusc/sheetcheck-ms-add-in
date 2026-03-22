@@ -70,6 +70,8 @@ const AspectManager = (() => {
         _overlay.classList.add('visible');
         document.getElementById('chat-panel')?.classList.add('nav-active');
         _render();
+        // Auto-populate if no aspects yet
+        if (!_aspects.length) _onPopulate();
     }
 
     function close() {
@@ -223,10 +225,9 @@ const AspectManager = (() => {
         const id = 'a' + Date.now();
         _aspects.push({ id, label: '' });
         _render();
-        // Focus the new row's input
         requestAnimationFrame(() => {
-            const input = _listEl.querySelector(`[data-id="${id}"] .aspect-label-input`);
-            if (input) input.focus();
+            const ta = _listEl.querySelector(`[data-id="${id}"] .aspect-label-input`);
+            if (ta) ta.focus();
         });
     }
 
@@ -252,18 +253,25 @@ const AspectManager = (() => {
             num.className   = 'aspect-num';
             num.textContent = idx + 1;
 
-            const input = document.createElement('input');
-            input.type        = 'text';
-            input.className   = 'aspect-label-input';
-            input.value       = aspect.label;
-            input.placeholder = 'Describe an aspect to check…';
-            input.addEventListener('input', () => {
+            const ta = document.createElement('textarea');
+            ta.className   = 'aspect-label-input';
+            ta.value       = aspect.label;
+            ta.placeholder = 'Describe an aspect to check…';
+            ta.rows        = 1;
+            // Auto-resize on input
+            const _resize = () => {
+                ta.style.height = 'auto';
+                ta.style.height = ta.scrollHeight + 'px';
+            };
+            ta.addEventListener('input', () => {
                 const a = _aspects.find(x => x.id === aspect.id);
-                if (a) a.label = input.value;
+                if (a) a.label = ta.value;
+                _resize();
             });
-            input.addEventListener('keydown', e => {
-                if (e.key === 'Enter') { e.preventDefault(); input.blur(); }
+            ta.addEventListener('keydown', e => {
+                if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); ta.blur(); }
             });
+            requestAnimationFrame(_resize);
 
             const del = document.createElement('button');
             del.className   = 'aspect-del';
@@ -275,7 +283,7 @@ const AspectManager = (() => {
             });
 
             row.appendChild(num);
-            row.appendChild(input);
+            row.appendChild(ta);
             row.appendChild(del);
             _listEl.appendChild(row);
         });

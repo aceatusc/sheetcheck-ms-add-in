@@ -45,30 +45,24 @@ const ChatManager = (() => {
 
         try {
             const wsCtx = await WorksheetContext.gather(['selection', 'sheet', 'styles', 'charts']);
-            // Fresh isolated store per run — no bleed between runs or worksheets
             const runStore = DagStore.create();
 
-            // Generate code directly — no rubric gate
             _showTyping(true, 'Generating a solution…');
             const segments = await LLMClient.generateCode(text, wsCtx, null, ChatHistory.get());
             _showTyping(false);
 
-            // Register chain and show Start button
             const chain = DagRunner.prepareChain(text, segments, runStore);
 
             _appendMessage('agent',
                 `Ready — ${segments.length} step${segments.length !== 1 ? 's' : ''} planned.`,
                 { actions: [{ label: '▶ Apply to sheet', primary: true, onClick: async (btn) => {
-                    if (_isBusy) return;
                     btn.disabled    = true;
                     btn.textContent = 'Starting…';
-                    _setBusy(true);
                     try {
                         await DagRunner.start(chain.chainId);
                     } catch (err) {
                         // execution errors handled inside DagRunner/ExecutionEngine
                     } finally {
-                        _setBusy(false);
                         btn.textContent = '▶ Apply to sheet';
                         btn.disabled    = false;
                     }
