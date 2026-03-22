@@ -166,24 +166,32 @@ const StepNavigator = (() => {
             return;
         }
 
-        // Live execution waiting for user confirmation
+        const chain  = DagRunner.getChain(_chainId);
+        const store  = chain ? (chain.store || DagStore) : null;
+        const atLeaf = store ? store.edgesFrom(chain.currentNodeId).length === 0 : false;
+
+        // If there's a pending resolve AND we're at the leaf, dismiss immediately —
+        // this is the "✓ Done" click at the end of execution. One click, no loop re-entry.
+        if (_advanceResolve && atLeaf) {
+            dismiss();
+            return;
+        }
+
+        // Live execution mid-chain waiting for user confirmation (→ to next step)
         if (_advanceResolve) {
             _overlay.classList.remove('failed');
             _resolve();
             return;
         }
 
-        // At the leaf with no pending operation → ✓ means Done, close the navigator
-        const chain = DagRunner.getChain(_chainId);
-        if (!chain) return;
-        const store = chain.store || DagStore;
-        const atLeaf = store.edgesFrom(chain.currentNodeId).length === 0;
+        // At the leaf with no pending resolve (e.g. navigated back then forward manually)
         if (atLeaf) {
             dismiss();
             return;
         }
 
         // Otherwise: navigate to the next node (replay / normal forward step)
+        if (!chain) return;
         const edges = store.edgesFrom(chain.currentNodeId);
         const edge  = edges.find(e => new Set(chain.edgeIds).has(e.id)) || edges[0];
         if (edge) _navigateTo(edge.to);

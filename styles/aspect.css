@@ -2,8 +2,6 @@
    Aspect / Verify Panel — matches step-navigator style
    ============================================= */
 
-/* Re-use the same nav-active dimming from stepNavigator.css */
-
 #aspect-overlay {
     position: fixed;
     bottom: 170px;
@@ -30,24 +28,7 @@
     transform: translateX(-50%) translateY(0);
 }
 
-/* ── Header ── */
-.aspect-header {
-    display: flex;
-    align-items: center;
-    margin-bottom: 6px;
-}
-
-.aspect-title {
-    font-size: 10px;
-    font-weight: 700;
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
-    background: rgba(255,255,255,0.12);
-    color: #fff;
-    padding: 2px 8px;
-    border-radius: 99px;
-}
-
+/* ── Close button ── */
 .aspect-close {
     position: absolute;
     top: 8px; right: 10px;
@@ -61,24 +42,16 @@
 }
 .aspect-close:hover { color: #fff; }
 
-/* ── Subtitle ── */
-.aspect-subtitle {
-    font-size: 11.5px;
-    color: rgba(255,255,255,0.65);
-    line-height: 1.5;
-    margin-bottom: 10px;
-}
-
 /* ── Toolbar ── */
 .aspect-toolbar {
     display: flex;
     align-items: center;
     gap: 6px;
     margin-bottom: 10px;
+    padding-right: 20px; /* avoid close button overlap */
     flex-wrap: wrap;
 }
 
-/* Reuse nav-action-btn style exactly */
 .aspect-btn {
     background: rgba(255,255,255,0.12);
     color: #fff;
@@ -98,7 +71,6 @@
 .aspect-btn:disabled     { opacity: 0.35; cursor: not-allowed; transform: none; }
 .aspect-btn-icon         { font-size: 12px; line-height: 1; }
 
-.aspect-btn--populate    { /* default nav style */ }
 .aspect-btn--verify      { background: rgba(62,207,142,0.2); border-color: rgba(62,207,142,0.35); color: #3ecf8e; }
 .aspect-btn--verify:hover{ background: rgba(62,207,142,0.35); border-color: rgba(62,207,142,0.6); }
 .aspect-btn--add         { margin-left: auto; }
@@ -107,8 +79,7 @@
 .aspect-list {
     display: flex;
     flex-direction: column;
-    gap: 4px;
-    margin-bottom: 8px;
+    gap: 0;
 }
 
 .aspect-empty {
@@ -118,26 +89,44 @@
     font-style: italic;
 }
 
+/* ── Aspect row ── */
 .aspect-row {
     display: flex;
     align-items: flex-start;
     gap: 7px;
-    padding: 4px 2px;
+    padding: 6px 2px;
     border-bottom: 1px solid rgba(255,255,255,0.07);
+}
+.aspect-row:last-child { border-bottom: none; }
+
+/* Left column: number or result icon */
+.aspect-row-left {
+    flex-shrink: 0;
+    width: 18px;
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    padding-top: 3px;
 }
 
 .aspect-num {
     font-size: 10px;
     font-weight: 700;
     color: rgba(255,255,255,0.3);
-    min-width: 14px;
-    text-align: right;
-    flex-shrink: 0;
-    padding-top: 4px;
 }
 
-.aspect-label-input {
+/* Body: textarea + inline result */
+.aspect-row-body {
     flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+/* ── Textarea ── */
+.aspect-label-input {
+    width: 100%;
     background: transparent;
     border: none;
     border-bottom: 1px solid transparent;
@@ -145,42 +134,21 @@
     font-family: var(--font-ui);
     font-size: 11.5px;
     line-height: 1.5;
-    padding: 3px 2px;
+    padding: 2px 0;
     outline: none;
     resize: none;
     overflow: hidden;
-    min-height: 22px;
+    min-height: 20px;
     transition: border-color 0.15s;
-    min-width: 0;
-    display: block;
 }
-.aspect-label-input:focus { border-bottom-color: var(--color-accent); }
-.aspect-label-input::placeholder { color: rgba(255,255,255,0.25); }
+.aspect-label-input:focus         { border-bottom-color: var(--color-accent); }
+.aspect-label-input::placeholder  { color: rgba(255,255,255,0.25); }
 
-.aspect-del {
-    background: none;
-    border: none;
-    color: rgba(255,255,255,0.25);
-    font-size: 11px;
-    cursor: pointer;
-    padding: 3px 3px;
-    flex-shrink: 0;
-    transition: color 0.15s;
-}
-.aspect-del:hover { color: var(--color-error); }
-
-/* ── Results area ── */
-.aspect-results {
-    display: flex;
-    flex-direction: column;
-    gap: 5px;
-}
-
-.aspect-loading {
-    font-size: 11px;
-    color: rgba(255,255,255,0.4);
+/* ── Inline result detail ── */
+.aspect-inline-loading {
+    font-size: 10.5px;
+    color: rgba(255,255,255,0.35);
     font-style: italic;
-    padding: 6px 2px;
     animation: aspectFade 1.2s ease-in-out infinite alternate;
 }
 
@@ -189,84 +157,38 @@
     to   { opacity: 0.9; }
 }
 
-.aspect-error {
-    font-size: 11px;
-    color: var(--color-error);
-    padding: 4px 2px;
-}
-
-/* Score summary */
-.aspect-score {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    padding: 6px 2px 8px;
-    border-bottom: 1px solid rgba(255,255,255,0.1);
-    margin-bottom: 4px;
-}
-.aspect-score-num {
-    font-size: 26px;
-    font-weight: 800;
-    color: #fff;
-    line-height: 1;
-}
-.aspect-score-num.all-met  { color: #3ecf8e; }
-.aspect-score-num.none-met { color: #f5643c; }
-.aspect-score-denom  { font-size: 14px; font-weight: 400; color: rgba(255,255,255,0.45); }
-.aspect-score-label  { font-size: 11.5px; color: rgba(255,255,255,0.6); }
-
-/* Result rows */
-.aspect-result-row {
-    display: flex;
-    gap: 8px;
-    padding: 5px 3px;
-    border-bottom: 1px solid rgba(255,255,255,0.07);
-}
-
-.aspect-result-icon {
-    font-size: 12px;
-    flex-shrink: 0;
-    padding-top: 2px;
-    width: 14px;
-    text-align: center;
-}
-.aspect-result-row.met   .aspect-result-icon { color: #3ecf8e; }
-.aspect-result-row.unmet .aspect-result-icon { color: #f5a623; }
-
-.aspect-result-body {
-    flex: 1;
-    min-width: 0;
+.aspect-inline-detail {
     display: flex;
     flex-direction: column;
-    gap: 3px;
+    gap: 4px;
 }
 
-.aspect-result-label {
-    font-size: 11.5px;
-    color: rgba(255,255,255,0.9);
-    font-weight: 500;
-    line-height: 1.4;
-}
-
-.aspect-result-reason {
+.aspect-inline-reason {
     font-size: 10.5px;
     color: rgba(255,255,255,0.55);
     line-height: 1.4;
 }
 
-/* Clickable cell reference chips — same as range-chip */
+/* ── Result icon in left column ── */
+.aspect-result-icon {
+    font-size: 12px;
+    line-height: 1;
+}
+.aspect-result-icon.met   { color: #3ecf8e; }
+.aspect-result-icon.unmet { color: #f5a623; }
+
+/* ── Clickable cell reference chips ── */
 .aspect-result-refs {
     display: flex;
     flex-wrap: wrap;
     gap: 4px;
-    margin-top: 2px;
 }
 
 .aspect-ref-chip {
     font-family: var(--font-mono);
     font-size: 10px;
     background: rgba(255,255,255,0.12);
-    color: rgba(255,255,255,0.9);
+    color: rgba(255,255,255,0.85);
     padding: 2px 7px;
     border-radius: 4px;
     border: none;
@@ -275,3 +197,25 @@
 }
 .aspect-ref-chip:hover  { background: rgba(79,142,247,0.35); color: #fff; transform: translateY(-1px); }
 .aspect-ref-chip:active { transform: translateY(0); }
+
+/* ── Delete button ── */
+.aspect-del {
+    background: none;
+    border: none;
+    color: rgba(255,255,255,0.2);
+    font-size: 11px;
+    cursor: pointer;
+    padding: 3px 3px;
+    flex-shrink: 0;
+    transition: color 0.15s;
+    margin-top: 1px;
+}
+.aspect-del:hover { color: var(--color-error); }
+
+/* ── Error message ── */
+.aspect-error {
+    font-size: 11px;
+    color: var(--color-error);
+    padding: 4px 2px;
+    display: block;
+}

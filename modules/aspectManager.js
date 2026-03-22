@@ -1,67 +1,33 @@
 /**
  * aspectManager.js
  *
- * Standalone "Verify" panel — accessible at any time via the Verify button
- * in the chat header. Completely independent of the code generation pipeline.
+ * Standalone "Verify" panel. DOM is declared in index.html.
  *
- * Features:
- *   - Flat list of "aspects" (no hard/soft distinction)
- *   - "Populate" button → calls /rubric/scaffold with full sheet + chat context
- *   - "Verify" button   → calls /rubric/verify and shows results with clickable
- *                         cell references (clicking focuses that range in Excel)
- *   - Add / edit / delete aspects manually at any time
- *
- * DOM: injects its own overlay element into <body> on init().
+ * After Verify runs, results appear inline under each aspect row:
+ *   ✓/⚠  reasoning text
+ *   [Sheet1!A1:F1] clickable range chips
+ * No separate results section — saves space and avoids repetition.
  */
 const AspectManager = (() => {
 
     // ── State ─────────────────────────────────────────────────────────────────
-    let _aspects   = [];   // [{ id, label }]
-    let _overlay   = null;
-    let _listEl    = null;
-    let _resultsEl = null;
-    let _populateBtn = null;
-    let _verifyBtn   = null;
+    let _aspects = [];   // [{ id, label, result?, loading? }]
+
+    // ── DOM refs (elements declared in index.html) ────────────────────────────
+    let _overlay, _listEl, _populateBtn, _verifyBtn;
 
     // ── Init ──────────────────────────────────────────────────────────────────
 
     function init() {
-        _buildOverlay();
-    }
+        _overlay     = document.getElementById('aspect-overlay');
+        _listEl      = document.getElementById('aspect-list');
+        _populateBtn = document.getElementById('aspect-populate-btn');
+        _verifyBtn   = document.getElementById('aspect-verify-btn');
 
-    function _buildOverlay() {
-        _overlay = document.createElement('div');
-        _overlay.id = 'aspect-overlay';
-        _overlay.innerHTML = `
-            <button class="aspect-close" id="aspect-close-btn">✕</button>
-            <div id="aspect-badge" class="aspect-title">Verify</div>
-            <p class="aspect-subtitle">
-                Review important aspects of your sheet. Populate from context, add your own, then run Verify.
-            </p>
-            <div class="aspect-toolbar">
-                <button class="aspect-btn aspect-btn--populate" id="aspect-populate-btn">
-                    <span class="aspect-btn-icon">⟳</span> Populate
-                </button>
-                <button class="aspect-btn aspect-btn--verify" id="aspect-verify-btn">
-                    <span class="aspect-btn-icon">✓</span> Verify
-                </button>
-                <button class="aspect-btn aspect-btn--add" id="aspect-add-btn">+ Add</button>
-            </div>
-            <div id="aspect-list" class="aspect-list"></div>
-            <div id="aspect-results" class="aspect-results"></div>
-        `;
-
-        document.body.appendChild(_overlay);
-
-        _listEl      = _overlay.querySelector('#aspect-list');
-        _resultsEl   = _overlay.querySelector('#aspect-results');
-        _populateBtn = _overlay.querySelector('#aspect-populate-btn');
-        _verifyBtn   = _overlay.querySelector('#aspect-verify-btn');
-
-        _overlay.querySelector('#aspect-close-btn').addEventListener('click', close);
+        document.getElementById('aspect-close-btn').addEventListener('click', close);
         _populateBtn.addEventListener('click', _onPopulate);
         _verifyBtn.addEventListener('click', _onVerify);
-        _overlay.querySelector('#aspect-add-btn').addEventListener('click', _onAdd);
+        document.getElementById('aspect-add-btn').addEventListener('click', _onAdd);
     }
 
     // ── Public ────────────────────────────────────────────────────────────────
@@ -70,7 +36,6 @@ const AspectManager = (() => {
         _overlay.classList.add('visible');
         document.getElementById('chat-panel')?.classList.add('nav-active');
         _render();
-        // Auto-populate if no aspects yet
         if (!_aspects.length) _onPopulate();
     }
 
@@ -82,34 +47,29 @@ const AspectManager = (() => {
     // ── Populate ──────────────────────────────────────────────────────────────
 
     async function _onPopulate() {
-        _populateBtn.disabled    = true;
-        _populateBtn.textContent = '⟳ Populating…';
-        _resultsEl.innerHTML     = '';
+        _populateBtn.disabled  = true;
+        _populateBtn.innerHTML = '<span class="aspect-btn-icon">⟳</span> Populating…';
+        _aspects = _aspects.map(a => ({ id: a.id, label: a.label }));
+        _render();
 
         try {
-            const wsCtx = await WorksheetContext.gather(['selection', 'sheet', 'styles', 'charts']);
-            // Use last chat message as the user_message context; fall back to empty string
+            const wsCtx   = await WorksheetContext.gather(['selection', 'sheet', 'styles', 'charts']);
             const history = ChatHistory.get();
             const lastMsg = history[history.length - 1] || '';
-            const res = await LLMClient.rubricScaffold(lastMsg, wsCtx, history);
+            const res     = await LLMClient.rubricScaffold(lastMsg, wsCtx, history);
 
-            // res is { aspects: [{id, label}, ...] }
             if (Array.isArray(res.aspects) && res.aspects.length) {
-                _aspects = res.aspects;
+                _aspects = res.aspects.map(a => ({ id: a.id, label: a.label }));
             } else {
-                // Fallback: old hard/soft shape from server if not yet updated
-                const all = [
-                    ...(res.hard_requirements || []),
-                    ...(res.soft_requirements || []),
-                ];
-                _aspects = all.map(r => ({ id: r.id, label: r.label }));
+                const all = [...(res.hard_requirements || []), ...(res.soft_requirements || [])];
+                _aspects  = all.map(r => ({ id: r.id, label: r.label }));
             }
             _render();
         } catch (err) {
             _listEl.innerHTML = `<span class="aspect-error">Populate failed: ${err.message}</span>`;
         } finally {
-            _populateBtn.disabled    = false;
-            _populateBtn.innerHTML   = '<span class="aspect-btn-icon">⟳</span> Populate';
+            _populateBtn.disabled  = false;
+            _populateBtn.innerHTML = '<span class="aspect-btn-icon">⟳</span> Populate';
         }
     }
 
@@ -117,105 +77,40 @@ const AspectManager = (() => {
 
     async function _onVerify() {
         if (!_aspects.length) {
-            _resultsEl.innerHTML = '<span class="aspect-error">Add some aspects first, then verify.</span>';
+            _listEl.innerHTML = '<span class="aspect-error">Add some aspects first, then verify.</span>';
             return;
         }
 
-        _verifyBtn.disabled    = true;
-        _verifyBtn.textContent = '✓ Verifying…';
-        _resultsEl.innerHTML   = '<span class="aspect-loading">Checking aspects against your sheet…</span>';
+        _verifyBtn.disabled  = true;
+        _verifyBtn.innerHTML = '<span class="aspect-btn-icon">✓</span> Verifying…';
+
+        _aspects = _aspects.map(a => ({ id: a.id, label: a.label, loading: true }));
+        _render();
 
         try {
-            const wsCtx = await WorksheetContext.gather(['sheet']);
-            const payload = { aspects: _aspects };
-            const res = await LLMClient.rubricVerify(payload, wsCtx, ChatHistory.get());
+            const wsCtx   = await WorksheetContext.gather(['sheet']);
+            const payload = { aspects: _aspects.map(a => ({ id: a.id, label: a.label })) };
+            const res     = await LLMClient.rubricVerify(payload, wsCtx, ChatHistory.get());
 
-            // Build lookup by id
             const byId = {};
             (res.results || []).forEach(r => { byId[r.id] = r; });
 
-            _resultsEl.innerHTML = '';
-
-            // Score line
-            const met   = _aspects.filter(a => byId[a.id]?.met).length;
-            const total = _aspects.length;
-            const allMet = met === total;
-
-            const score = document.createElement('div');
-            score.className = 'aspect-score';
-            score.innerHTML =
-                `<span class="aspect-score-num ${allMet ? 'all-met' : met === 0 ? 'none-met' : ''}">`
-                + `${met}<span class="aspect-score-denom">/${total}</span></span>`
-                + `<span class="aspect-score-label">${allMet ? 'All aspects satisfied 🎉' : 'aspects satisfied'}</span>`;
-            _resultsEl.appendChild(score);
-
-            // Result rows
-            _aspects.forEach(aspect => {
-                const r   = byId[aspect.id];
-                const met = r?.met ?? false;
-
-                const row = document.createElement('div');
-                row.className = `aspect-result-row ${met ? 'met' : 'unmet'}`;
-
-                const icon = document.createElement('span');
-                icon.className   = 'aspect-result-icon';
-                icon.textContent = met ? '✓' : '⚠';
-
-                const body = document.createElement('div');
-                body.className = 'aspect-result-body';
-
-                const label = document.createElement('div');
-                label.className   = 'aspect-result-label';
-                label.textContent = aspect.label;
-
-                body.appendChild(label);
-
-                if (r?.reasoning) {
-                    const reason = document.createElement('div');
-                    reason.className   = 'aspect-result-reason';
-                    reason.textContent = r.reasoning;
-                    body.appendChild(reason);
-                }
-
-                // Clickable cell references
-                if (r?.references?.length) {
-                    const refs = document.createElement('div');
-                    refs.className = 'aspect-result-refs';
-                    r.references.forEach(addr => {
-                        const chip = document.createElement('button');
-                        chip.className   = 'aspect-ref-chip';
-                        chip.textContent = addr;
-                        chip.title       = `Focus ${addr} in sheet`;
-                        chip.addEventListener('click', () => _focusRange(addr));
-                        refs.appendChild(chip);
-                    });
-                    body.appendChild(refs);
-                }
-
-                row.appendChild(icon);
-                row.appendChild(body);
-                _resultsEl.appendChild(row);
-            });
-
+            _aspects = _aspects.map(a => ({
+                id:     a.id,
+                label:  a.label,
+                result: byId[a.id] || null,
+            }));
+            _render();
         } catch (err) {
-            _resultsEl.innerHTML = `<span class="aspect-error">Verification failed: ${err.message}</span>`;
+            _aspects = _aspects.map(a => ({ id: a.id, label: a.label }));
+            _render();
+            const errEl = document.createElement('span');
+            errEl.className   = 'aspect-error';
+            errEl.textContent = `Verification failed: ${err.message}`;
+            _listEl.appendChild(errEl);
         } finally {
             _verifyBtn.disabled  = false;
             _verifyBtn.innerHTML = '<span class="aspect-btn-icon">✓</span> Verify';
-        }
-    }
-
-    // ── Focus range in Excel ──────────────────────────────────────────────────
-
-    async function _focusRange(address) {
-        try {
-            await Excel.run(async ctx => {
-                ctx.workbook.worksheets.getActiveWorksheet()
-                    .getRange(address).select();
-                await ctx.sync();
-            });
-        } catch (err) {
-            console.warn('[AspectManager] focusRange failed:', err.message);
         }
     }
 
@@ -246,23 +141,34 @@ const AspectManager = (() => {
 
         _aspects.forEach((aspect, idx) => {
             const row = document.createElement('div');
-            row.className    = 'aspect-row';
-            row.dataset.id   = aspect.id;
+            row.className  = 'aspect-row';
+            row.dataset.id = aspect.id;
 
-            const num = document.createElement('span');
-            num.className   = 'aspect-num';
-            num.textContent = idx + 1;
+            // Left column: result icon (after verify) or index number
+            const left = document.createElement('div');
+            left.className = 'aspect-row-left';
+            if (aspect.result) {
+                const icon = document.createElement('span');
+                icon.className   = aspect.result.met ? 'aspect-result-icon met' : 'aspect-result-icon unmet';
+                icon.textContent = aspect.result.met ? '✓' : '⚠';
+                left.appendChild(icon);
+            } else {
+                const num = document.createElement('span');
+                num.className   = 'aspect-num';
+                num.textContent = idx + 1;
+                left.appendChild(num);
+            }
+
+            // Body: textarea + inline result detail
+            const body = document.createElement('div');
+            body.className = 'aspect-row-body';
 
             const ta = document.createElement('textarea');
             ta.className   = 'aspect-label-input';
             ta.value       = aspect.label;
             ta.placeholder = 'Describe an aspect to check…';
             ta.rows        = 1;
-            // Auto-resize on input
-            const _resize = () => {
-                ta.style.height = 'auto';
-                ta.style.height = ta.scrollHeight + 'px';
-            };
+            const _resize  = () => { ta.style.height = 'auto'; ta.style.height = ta.scrollHeight + 'px'; };
             ta.addEventListener('input', () => {
                 const a = _aspects.find(x => x.id === aspect.id);
                 if (a) a.label = ta.value;
@@ -272,7 +178,46 @@ const AspectManager = (() => {
                 if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); ta.blur(); }
             });
             requestAnimationFrame(_resize);
+            body.appendChild(ta);
 
+            // Loading state
+            if (aspect.loading) {
+                const loading = document.createElement('div');
+                loading.className   = 'aspect-inline-loading';
+                loading.textContent = 'Checking…';
+                body.appendChild(loading);
+            }
+
+            // Result detail: reasoning + clickable refs
+            if (aspect.result) {
+                const detail = document.createElement('div');
+                detail.className = 'aspect-inline-detail';
+
+                if (aspect.result.reasoning) {
+                    const reason = document.createElement('span');
+                    reason.className   = 'aspect-inline-reason';
+                    reason.textContent = aspect.result.reasoning;
+                    detail.appendChild(reason);
+                }
+
+                if (aspect.result.references?.length) {
+                    const refs = document.createElement('div');
+                    refs.className = 'aspect-result-refs';
+                    aspect.result.references.forEach(addr => {
+                        const chip = document.createElement('button');
+                        chip.className   = 'aspect-ref-chip';
+                        chip.textContent = addr;
+                        chip.title       = `Focus ${addr}`;
+                        chip.addEventListener('click', () => _focusRange(addr));
+                        refs.appendChild(chip);
+                    });
+                    detail.appendChild(refs);
+                }
+
+                body.appendChild(detail);
+            }
+
+            // Delete button
             const del = document.createElement('button');
             del.className   = 'aspect-del';
             del.textContent = '✕';
@@ -282,11 +227,25 @@ const AspectManager = (() => {
                 _render();
             });
 
-            row.appendChild(num);
-            row.appendChild(ta);
+            row.appendChild(left);
+            row.appendChild(body);
             row.appendChild(del);
             _listEl.appendChild(row);
         });
+    }
+
+    // ── Focus range in Excel ──────────────────────────────────────────────────
+
+    async function _focusRange(address) {
+        const clean = address.includes('!') ? address.split('!')[1] : address;
+        try {
+            await Excel.run(async ctx => {
+                ctx.workbook.worksheets.getActiveWorksheet().getRange(clean).select();
+                await ctx.sync();
+            });
+        } catch (err) {
+            console.warn('[AspectManager] focusRange failed:', err.message);
+        }
     }
 
     return { init, open, close };
