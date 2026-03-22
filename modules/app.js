@@ -17,6 +17,7 @@
 
     DagStore.init();
     RubricManager.init();
+    AspectManager.init();
     StepNavigator.init();
     ChatManager.init();
 
