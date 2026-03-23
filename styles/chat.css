@@ -247,6 +247,49 @@
 
 #send-button svg { width: 15px; height: 15px; fill: white; }
 
+/* ── Landing demo buttons ── */
+.demo-grid {
+    display: flex; flex-direction: column; gap: 6px; margin-top: 10px;
+}
+.demo-icon  { grid-row: 1 / 3; font-size: 18px; align-self: center; }
+.demo-label { font-size: 12px; font-weight: 700; color: #fff; }
+.demo-desc  { font-size: 10.5px; color: rgba(255,255,255,0.55); line-height: 1.3; }
+
+/* ── Segment enumeration message ── */
+.segment-msg-intro {
+    font-size: 12px;
+    color: rgba(255,255,255,0.75);
+    margin: 8px 0 6px;
+    line-height: 1.4;
+}
+
+.segment-msg-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-top: 2px;
+}
+
+.segment-msg-item {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+}
+
+.segment-msg-desc {
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--color-text);
+    line-height: 1.4;
+}
+
+.segment-msg-expl {
+    font-size: 11px;
+    color: var(--color-text-muted);
+    line-height: 1.4;
+    padding-left: 14px;
+}
+
 /* ── Verify button in header ── */
 .verify-header-btn {
     margin-left: auto;
@@ -274,14 +317,3 @@
     stroke: #3ecf8e;
     flex-shrink: 0;
 }
-
-/* Remove margin-left:auto from model-badge when verify button is present */
-#chat-header .model-badge { margin-left: 0; }
-
-/* ── Landing demo buttons ── */
-.demo-grid {
-    display: flex; flex-direction: column; gap: 6px; margin-top: 10px;
-}
-.demo-icon  { grid-row: 1 / 3; font-size: 18px; align-self: center; }
-.demo-label { font-size: 12px; font-weight: 700; color: #fff; }
-.demo-desc  { font-size: 10.5px; color: rgba(255,255,255,0.55); line-height: 1.3; }

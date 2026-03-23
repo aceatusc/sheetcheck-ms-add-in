@@ -52,28 +52,75 @@ const ChatManager = (() => {
             _showTyping(false);
 
             const chain = DagRunner.prepareChain(text, segments, runStore);
-
-            _appendMessage('agent',
-                `Ready — ${segments.length} step${segments.length !== 1 ? 's' : ''} planned.`,
-                { actions: [{ label: '▶ Apply to sheet', primary: true, onClick: async (btn) => {
-                    btn.disabled    = true;
-                    btn.textContent = 'Starting…';
-                    try {
-                        await DagRunner.start(chain.chainId);
-                    } catch (err) {
-                        // execution errors handled inside DagRunner/ExecutionEngine
-                    } finally {
-                        btn.textContent = '▶ Apply to sheet';
-                        btn.disabled    = false;
-                    }
-                }}]}
-            );
+            _appendSegmentMessage(segments, chain.chainId);
 
         } catch (err) {
             _showTyping(false);
         }
 
         _setBusy(false);
+    }
+
+    function _appendSegmentMessage(segments, chainId) {
+        const w = document.createElement('div');
+        w.className = 'message agent';
+        const b = document.createElement('div');
+        b.className = 'message-bubble';
+
+        // Apply button first
+        const actions = document.createElement('div');
+        actions.className = 'message-actions';
+        const btn = document.createElement('button');
+        btn.className   = 'message-action-btn primary';
+        btn.textContent = '▶ Apply to sheet';
+        btn.addEventListener('click', async () => {
+            btn.disabled    = true;
+            btn.textContent = 'Starting…';
+            try {
+                await DagRunner.start(chainId);
+            } catch (_) {
+            } finally {
+                btn.textContent = '▶ Apply to sheet';
+                btn.disabled    = false;
+            }
+        });
+        actions.appendChild(btn);
+        b.appendChild(actions);
+
+        // Intro line
+        const intro = document.createElement('p');
+        intro.className   = 'segment-msg-intro';
+        intro.textContent = `Alright! I'm ready to apply the following ${segments.length} change${segments.length !== 1 ? 's' : ''}:`;
+        b.appendChild(intro);
+
+        // Step list: bold description + muted explanation
+        const list = document.createElement('div');
+        list.className = 'segment-msg-list';
+        segments.forEach((seg, i) => {
+            const item = document.createElement('div');
+            item.className = 'segment-msg-item';
+
+            const desc = document.createElement('div');
+            desc.className   = 'segment-msg-desc';
+            desc.textContent = `${i + 1}. ${seg.description}`;
+
+            const expl = document.createElement('div');
+            expl.className   = 'segment-msg-expl';
+            expl.textContent = seg.explanation;
+
+            item.appendChild(desc);
+            item.appendChild(expl);
+            list.appendChild(item);
+        });
+        b.appendChild(list);
+
+        const meta = document.createElement('span');
+        meta.className   = 'message-meta';
+        meta.textContent = 'Assistant';
+        w.appendChild(b);
+        w.appendChild(meta);
+        _feed.insertBefore(w, _typing);
+        _feed.scrollTop = _feed.scrollHeight;
     }
 
 

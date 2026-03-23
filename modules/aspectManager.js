@@ -48,9 +48,8 @@ const AspectManager = (() => {
 
     async function _onPopulate() {
         _populateBtn.disabled  = true;
-        _populateBtn.innerHTML = '<span class="aspect-btn-icon">⟳</span> Populating…';
+        _populateBtn.innerHTML = '<span class="aspect-btn-icon">✦</span> Generating with AI…';
         _aspects = _aspects.map(a => ({ id: a.id, label: a.label }));
-        _render();
 
         try {
             const wsCtx   = await WorksheetContext.gather(['selection', 'sheet', 'styles', 'charts']);
@@ -65,11 +64,12 @@ const AspectManager = (() => {
                 _aspects  = all.map(r => ({ id: r.id, label: r.label }));
             }
             _render();
+            _populateBtn.innerHTML = '<span class="aspect-btn-icon">✦</span> Generate with AI';
         } catch (err) {
             _listEl.innerHTML = `<span class="aspect-error">Populate failed: ${err.message}</span>`;
+            _populateBtn.innerHTML = '<span class="aspect-btn-icon">✦</span> Generate with AI';
         } finally {
-            _populateBtn.disabled  = false;
-            _populateBtn.innerHTML = '<span class="aspect-btn-icon">⟳</span> Populate';
+            _populateBtn.disabled = false;
         }
     }
 
