@@ -468,6 +468,8 @@ const StepNavigator = (() => {
         const chain = DagRunner.getChain(_chainId);
         const seg   = _currentSegment(chain);
         try {
+            // Gather all sheets so the answer can reference cross-sheet data
+            // (e.g. where a dropdown's list comes from, what a VLOOKUP reads)
             const wsCtx = await WorksheetContext.gather(['sheet']);
             const res   = await LLMClient.ask(msg, wsCtx,
                 { description: seg?.description, explanation: seg?.explanation },
