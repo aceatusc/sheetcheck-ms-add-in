@@ -289,3 +289,31 @@
     line-height: 1.4;
     padding-left: 14px;
 }
+
+/* ── Verify button in header ── */
+.verify-header-btn {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    background: rgba(62, 207, 142, 0.12);
+    border: 1px solid rgba(62, 207, 142, 0.3);
+    color: #3ecf8e;
+    border-radius: 99px;
+    font-size: 11px;
+    font-weight: 600;
+    padding: 4px 10px;
+    cursor: pointer;
+    transition: background var(--transition), border-color var(--transition), transform var(--transition);
+    letter-spacing: 0.02em;
+}
+.verify-header-btn:hover {
+    background: rgba(62, 207, 142, 0.22);
+    border-color: rgba(62, 207, 142, 0.55);
+    transform: translateY(-1px);
+}
+.verify-header-btn svg {
+    width: 13px; height: 13px;
+    stroke: #3ecf8e;
+    flex-shrink: 0;
+}
