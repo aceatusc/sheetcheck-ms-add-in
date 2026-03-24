@@ -52,7 +52,21 @@ const ChatManager = (() => {
             _showTyping(false);
 
             const chain = DagRunner.prepareChain(text, segments, runStore);
-            _appendSegmentMessage(segments, chain.chainId);
+            _appendSegmentMessage(segments);
+
+            // Auto-apply all segments immediately — no user confirmation step.
+            // Runs each segment's code sequentially; logs errors per-segment but
+            // continues so a single failure doesn't block the remaining steps.
+            _showTyping(true, 'Applying changes…');
+            for (const seg of segments) {
+                try {
+                    await DagRunner.stepForward(chain.chainId);
+                } catch (err) {
+                    // Non-fatal: log and keep going
+                    console.warn(`[ChatManager] segment "${seg.description}" failed:`, err.message);
+                }
+            }
+            _showTyping(false);
 
         } catch (err) {
             _showTyping(false);
@@ -61,36 +75,18 @@ const ChatManager = (() => {
         _setBusy(false);
     }
 
-    function _appendSegmentMessage(segments, chainId) {
+    function _appendSegmentMessage(segments) {
         const w = document.createElement('div');
         w.className = 'message agent';
         const b = document.createElement('div');
         b.className = 'message-bubble';
 
-        // Apply button first
-        const actions = document.createElement('div');
-        actions.className = 'message-actions';
-        const btn = document.createElement('button');
-        btn.className   = 'message-action-btn primary';
-        btn.textContent = '▶ Apply to sheet';
-        btn.addEventListener('click', async () => {
-            btn.disabled    = true;
-            btn.textContent = 'Starting…';
-            try {
-                await DagRunner.start(chainId);
-            } catch (_) {
-            } finally {
-                btn.textContent = '▶ Apply to sheet';
-                btn.disabled    = false;
-            }
-        });
-        actions.appendChild(btn);
-        b.appendChild(actions);
+        // No Apply button — changes are applied automatically.
 
         // Intro line
         const intro = document.createElement('p');
         intro.className   = 'segment-msg-intro';
-        intro.textContent = `Alright! I'm ready to apply the following ${segments.length} change${segments.length !== 1 ? 's' : ''}:`;
+        intro.textContent = `Applied the following ${segments.length} change${segments.length !== 1 ? 's' : ''}:`;
         b.appendChild(intro);
 
         // Step list: bold description + muted explanation
