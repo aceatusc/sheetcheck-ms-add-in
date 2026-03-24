@@ -52,8 +52,9 @@ const AspectManager = (() => {
         _aspects = _aspects.map(a => ({ id: a.id, label: a.label }));
 
         try {
+            // Include all sheets so aspects can reference cross-sheet data
             const wsCtx   = await WorksheetContext.gather(['selection', 'sheet', 'styles', 'charts']);
-            const history = ChatHistory.get();
+            const history = ChatHistory.get();   // full conversation history
             const lastMsg = history[history.length - 1] || '';
             const res     = await LLMClient.rubricScaffold(lastMsg, wsCtx, history);
 
@@ -88,8 +89,12 @@ const AspectManager = (() => {
         _render();
 
         try {
+            // Gather ALL sheets so the LLM can verify cross-sheet references
+            // (e.g. dropdown sources on a Data sheet, VLOOKUP targets, etc.)
             const wsCtx   = await WorksheetContext.gather(['sheet']);
             const payload = { aspects: _aspects.map(a => ({ id: a.id, label: a.label })) };
+            // Pass the FULL chat history so the LLM knows everything that was
+            // requested and applied — not just the last message.
             const res     = await LLMClient.rubricVerify(payload, wsCtx, ChatHistory.get());
 
             const byId = {};
