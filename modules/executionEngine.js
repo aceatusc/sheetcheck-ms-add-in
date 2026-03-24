@@ -16,6 +16,7 @@ const ExecutionEngine = (() => {
         const chain = DagRunner.getChain(chainId);
         if (!chain?.segments?.length) return;
 
+        _setStatus('');
         _setStatus('running');
         _log('info', `Starting execution: ${chain.segments.length} segment(s)`);
 
