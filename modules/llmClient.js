@@ -15,9 +15,9 @@ const LLMClient = (() => {
     const TIMEOUTS = {
         '/code':            300_000,   // 5 min
         '/edit':            300_000,   // 5 min
-        '/rubric/verify':    60_000,   // 1 min
-        '/rubric/scaffold':  60_000,   // 1 min
-        '/ask':              30_000,   // 30 s
+        '/rubric/verify':    120_000,   // 2 min
+        '/rubric/scaffold':  120_000,   // 2 min
+        '/ask':              60_000,   // 60 s
         '/chat':             30_000,   // 30 s
     };
     const DEFAULT_TIMEOUT = 120_000;   // 2 min fallback
