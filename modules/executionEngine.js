@@ -51,10 +51,11 @@ const ExecutionEngine = (() => {
                 StepNavigator.refreshGraph();
             }
 
-            if (stepOk) {
-                await StepNavigator.waitForNext();
-                if (StepNavigator.isDismissed()) break;
-            }
+            // Step pause removed — all segments apply immediately without user confirmation.
+            // if (stepOk) {
+            //     await StepNavigator.waitForNext();
+            //     if (StepNavigator.isDismissed()) break;
+            // }
         }
 
         if (StepNavigator.isDismissed()) {
@@ -70,33 +71,8 @@ const ExecutionEngine = (() => {
             _log('ok', 'All segments complete.');
         }
 
-        // ── Review loop ────────────────────────────────────────────────────
-        // Lets the user navigate back/forward through completed steps.
-        // ✓ button calls dismiss() which sets _dismissed and resolves the
-        // pending waitForNext promise — we check isDismissed() immediately
-        // on the next line so we exit without doing any extra work.
-        while (true) {
-            await StepNavigator.waitForNext();
-            if (StepNavigator.isDismissed()) break;  // ✓ was clicked — exit cleanly
-
-            const rc = DagRunner.getChain(chainId);
-            if (!rc) break;
-            const rcOut = (rc.store || DagStore).edgesFrom(rc.currentNodeId);
-            if (!rcOut.length) break;  // still at leaf after navigation — stop
-
-            try {
-                const r = await DagRunner.stepForward(chainId);
-                if (!r) break;
-                _log('ok', `↺ ${r.segment.description}`);
-                StepNavigator.refreshGraph();
-            } catch (err) {
-                _log('err', `✗ ${err.message}`);
-                await StepNavigator.markFailed(err.message);
-                if (StepNavigator.isDismissed()) break;
-                DagRunner.advancePastFailed(chainId);
-                StepNavigator.refreshGraph();
-            }
-        }
+        // Post-completion review loop removed — navigator is not shown in auto-apply mode.
+        // if (true) { await StepNavigator.waitForNext(); ... }
     }
 
     // ── Private helpers ───────────────────────────────────────────────────────

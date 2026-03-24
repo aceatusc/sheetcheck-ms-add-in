@@ -81,7 +81,7 @@ const DagRunner = (() => {
     async function start(chainId) {
         const chain = getChain(chainId);
         if (!chain) throw new Error('Unknown chain.');
-        StepNavigator.load(chain);
+        StepNavigator.load(chain);  // resets _dismissed=false; UI stays hidden since waitForNext is never called
         await ExecutionEngine.run(chainId);
     }
 

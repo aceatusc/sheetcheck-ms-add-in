@@ -54,18 +54,10 @@ const ChatManager = (() => {
             const chain = DagRunner.prepareChain(text, segments, runStore);
             _appendSegmentMessage(segments);
 
-            // Auto-apply all segments immediately — no user confirmation step.
-            // Runs each segment's code sequentially; logs errors per-segment but
-            // continues so a single failure doesn't block the remaining steps.
+            // Auto-apply — DagRunner.start() runs all segments immediately via
+            // ExecutionEngine (waitForNext pause has been removed there).
             _showTyping(true, 'Applying changes…');
-            for (const seg of segments) {
-                try {
-                    await DagRunner.stepForward(chain.chainId);
-                } catch (err) {
-                    // Non-fatal: log and keep going
-                    console.warn(`[ChatManager] segment "${seg.description}" failed:`, err.message);
-                }
-            }
+            await DagRunner.start(chain.chainId);
             _showTyping(false);
 
         } catch (err) {
