@@ -2,31 +2,17 @@
  * worksheetContext.js
  * Reads worksheet state to provide LLM context.
  *
- * gather() supports context types:
- *   'selection'   — currently selected range (address, values, formulas)
- *   'sheet'       — used range of EVERY worksheet (address + values), keyed by
- *                   sheet name. Active sheet is always included; others are
- *                   capped at MAX_CELLS_PER_SHEET to keep the payload lean.
- *   'named-ranges'— workbook-level named ranges
- *   'styles'      — header + first data row formatting sample from active sheet
- *   'charts'      — chart objects on the active sheet
+ * gather() now supports two additional context types:
+ *   'styles'  — samples fill/font/numberFormat from the used range header row
+ *               and a representative data row, so the LLM knows the current
+ *               formatting theme and doesn't override it unnecessarily.
+ *   'charts'  — lists charts present on the active sheet (name, type, data
+ *               range, title) so the LLM is aware of existing visualisations.
  *
- * sheetData shape (backward-compatible):
- *   {
- *     usedRange: { address, values },   // active sheet (same as before)
- *     allSheets: [                      // NEW — all sheets including active
- *       { name, address, values, rowCount, colCount },
- *       ...
- *     ],
- *     styles?: [...],
- *     charts?: [...],
- *   }
+ * Default call from chatManager: gather(['selection', 'sheet'])
+ * Full call for richer context:  gather(['selection', 'sheet', 'styles', 'charts'])
  */
 const WorksheetContext = (() => {
-
-    // Cap per non-active sheet to avoid ballooning context size.
-    // Active sheet is sent in full (worksheetSnapshot already caps at 5000 cells).
-    const MAX_CELLS_PER_SHEET = 2000;
 
     async function gather(contextTypes = ['selection']) {
         const ctx = {
@@ -49,84 +35,12 @@ const WorksheetContext = (() => {
                     ctx.selection = { address: sel.address, values: sel.values, formulas: sel.formulas };
                 }
 
-                // ── Sheet data (all worksheets) ───────────────────────────────
-                // Always reads every worksheet when 'sheet' is requested.
-                // allSheets[] gives the LLM visibility into cross-sheet references
-                // (e.g. Data!A2:B6 used by VLOOKUP in Opportunities sheet).
+                // ── Sheet data ───────────────────────────────────────────────
                 if (contextTypes.includes('sheet')) {
-                    const allSheets = wb.worksheets;
-                    allSheets.load('items/name');
+                    const used = sheet.getUsedRange();
+                    used.load(['address', 'values']);
                     await exCtx.sync();
-
-                    const sheetDataList = [];
-                    let activeSheetUsedRange = null;
-
-                    for (const ws of allSheets.items) {
-                        try {
-                            const used = ws.getUsedRangeOrNullObject();
-                            used.load('isNullObject');
-                            await exCtx.sync();
-
-                            if (used.isNullObject) {
-                                sheetDataList.push({ name: ws.name, address: null, values: [], rowCount: 0, colCount: 0 });
-                                continue;
-                            }
-
-                            used.load(['address', 'rowCount', 'columnCount']);
-                            await exCtx.sync();
-
-                            const rows  = used.rowCount;
-                            const cols  = used.columnCount;
-                            const cells = rows * cols;
-                            const isActive = ws.name === sheet.name;
-
-                            // For non-active sheets, truncate to avoid context explosion.
-                            // We load the full range but slice values client-side.
-                            if (!isActive && cells > MAX_CELLS_PER_SHEET) {
-                                // Load only first N rows worth of data
-                                const maxRows = Math.max(1, Math.floor(MAX_CELLS_PER_SHEET / cols));
-                                const truncRange = ws.getRangeByIndexes(0, 0, maxRows, cols);
-                                truncRange.load(['address', 'values']);
-                                await exCtx.sync();
-                                sheetDataList.push({
-                                    name:      ws.name,
-                                    address:   truncRange.address,
-                                    values:    truncRange.values,
-                                    rowCount:  rows,   // actual full row count
-                                    colCount:  cols,
-                                    truncated: true,
-                                    shownRows: maxRows,
-                                });
-                            } else {
-                                used.load(['values']);
-                                await exCtx.sync();
-                                const entry = {
-                                    name:     ws.name,
-                                    address:  used.address,
-                                    values:   used.values,
-                                    rowCount: rows,
-                                    colCount: cols,
-                                };
-                                sheetDataList.push(entry);
-                                if (isActive) activeSheetUsedRange = entry;
-                            }
-                        } catch (sheetErr) {
-                            console.warn(`[WorksheetContext] sheet "${ws.name}" error:`, sheetErr.message);
-                            sheetDataList.push({ name: ws.name, error: sheetErr.message });
-                        }
-                    }
-
-                    // Backward-compat: sheetData.usedRange still points to active sheet
-                    const activeEntry = activeSheetUsedRange
-                        || sheetDataList.find(s => s.name === sheet.name)
-                        || null;
-
-                    ctx.sheetData = {
-                        usedRange: activeEntry
-                            ? { address: activeEntry.address, values: activeEntry.values }
-                            : null,
-                        allSheets: sheetDataList,
-                    };
+                    ctx.sheetData = { usedRange: { address: used.address, values: used.values } };
                 }
 
                 // ── Named ranges ─────────────────────────────────────────────
@@ -137,7 +51,10 @@ const WorksheetContext = (() => {
                     ctx.namedRanges = names.items.map(n => ({ name: n.name, value: n.value }));
                 }
 
-                // ── Styles (sampled formatting snapshot from active sheet) ────
+                // ── Styles (sampled formatting snapshot) ─────────────────────
+                // Loads fill colour, font colour/bold/size, number format, and
+                // horizontal alignment for the header row and first data row.
+                // Sampling keeps the payload small while still conveying theme.
                 if (contextTypes.includes('styles')) {
                     ctx.sheetData = ctx.sheetData || {};
                     ctx.sheetData.styles = [];
@@ -150,8 +67,10 @@ const WorksheetContext = (() => {
                             used.load(['rowCount', 'columnCount', 'address']);
                             await exCtx.sync();
 
+                            // Sample up to 2 rows: header (row 0) + first data row (row 1)
                             const rowsToSample = Math.min(used.rowCount, 2);
                             for (let r = 0; r < rowsToSample; r++) {
+                                // Sample up to 3 cells per row to keep payload small
                                 const colsToSample = Math.min(used.columnCount, 3);
                                 for (let c = 0; c < colsToSample; c++) {
                                     const cell = used.getCell(r, c);
@@ -184,7 +103,7 @@ const WorksheetContext = (() => {
                     }
                 }
 
-                // ── Charts (active sheet only) ───────────────────────────────
+                // ── Charts ───────────────────────────────────────────────────
                 if (contextTypes.includes('charts')) {
                     ctx.sheetData = ctx.sheetData || {};
                     ctx.sheetData.charts = [];
@@ -195,6 +114,7 @@ const WorksheetContext = (() => {
                         for (const chart of charts.items) {
                             let dataRange = null;
                             try {
+                                // getDataRange() throws if the chart has no data range
                                 const dr = chart.getDataRange();
                                 dr.load('address');
                                 await exCtx.sync();
