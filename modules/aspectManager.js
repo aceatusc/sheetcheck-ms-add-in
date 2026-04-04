@@ -25,6 +25,7 @@ const AspectManager = (() => {
         // _verifyBtn   = document.getElementById('aspect-verify-btn');
 
         document.getElementById('aspect-close-btn').addEventListener('click', close);
+        document.getElementById('aspect-confirm-btn').addEventListener('click', close);
         _populateBtn.addEventListener('click', _onPopulate);
         // _verifyBtn.addEventListener('click', _onVerify);
         document.getElementById('aspect-add-btn').addEventListener('click', _onAdd);
