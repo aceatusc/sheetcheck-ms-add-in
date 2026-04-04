@@ -73,26 +73,6 @@ const ChatManager = (() => {
         intro.textContent = `I'm ready to walk you through these ${segments.length} update${segments.length !== 1 ? 's' : ''} step-by-step:`;
         b.appendChild(intro);
 
-        // Apply button first
-        const actions = document.createElement('div');
-        actions.className = 'message-actions';
-        const btn = document.createElement('button');
-        btn.className   = 'message-action-btn primary';
-        btn.textContent = '▶ Go';
-        btn.addEventListener('click', async () => {
-            btn.disabled    = true;
-            btn.textContent = 'Starting…';
-            try {
-                await DagRunner.start(chainId);
-            } catch (_) {
-            } finally {
-                btn.textContent = '▶ Go';
-                btn.disabled    = false;
-            }
-        });
-        actions.appendChild(btn);
-        b.appendChild(actions);
-
         // Step list: bold description + muted explanation
         const list = document.createElement('div');
         list.className = 'segment-msg-list';
@@ -113,6 +93,26 @@ const ChatManager = (() => {
             list.appendChild(item);
         });
         b.appendChild(list);
+
+        // Apply button first
+        const actions = document.createElement('div');
+        actions.className = 'message-actions';
+        const btn = document.createElement('button');
+        btn.className   = 'message-action-btn primary';
+        btn.textContent = '▶ Go';
+        btn.addEventListener('click', async () => {
+            btn.disabled    = true;
+            btn.textContent = 'Starting…';
+            try {
+                await DagRunner.start(chainId);
+            } catch (_) {
+            } finally {
+                btn.textContent = '▶ Go';
+                btn.disabled    = false;
+            }
+        });
+        actions.appendChild(btn);
+        b.appendChild(actions);
 
         const meta = document.createElement('span');
         meta.className   = 'message-meta';
