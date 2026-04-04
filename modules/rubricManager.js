@@ -272,7 +272,7 @@ const RubricManager = (() => {
 
         if (!hard.length && !soft.length) {
             const hint = document.createElement('div');
-            hint.style.cssText = 'font-size:11px;color:rgba(255,255,255,0.4);padding:8px 2px;text-align:center';
+            hint.style.cssText = 'font-size:11px;color:var(--color-text-muted);padding:8px 2px;text-align:center';
             hint.textContent   = 'No requirements yet — click "+ Add requirement" below.';
             _softList.appendChild(hint);
         }

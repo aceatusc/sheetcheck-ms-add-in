@@ -39,6 +39,11 @@
     color: var(--color-text);
 }
 
+.pista-logo {
+    flex-shrink: 0;
+    display: block;
+}
+
 #chat-header .model-badge {
     margin-left: auto;
     font-size: 10px;
