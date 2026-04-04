@@ -6,7 +6,7 @@
   <Version>1.1.0.0</Version>
   <ProviderName>USC ACE Lab - Sadra Sabouri</ProviderName>
   <DefaultLocale>en-US</DefaultLocale>
-  <DisplayName DefaultValue="SheetCheck" />
+  <DisplayName DefaultValue="Pista" />
   <Description DefaultValue="Sheet agent that lets you verify the output easier." />
   <Hosts>
     <Host Name="Workbook" />
