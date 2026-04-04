@@ -43,6 +43,14 @@ const ChatManager = (() => {
 
         ChatHistory.push(text);
 
+        // Reveal the Specifications button on the first prompt and kick off
+        // background population so aspects are ready when the user opens the panel.
+        const verifyBtn = document.getElementById('verify-btn');
+        if (verifyBtn?.hidden) {
+            verifyBtn.hidden = false;
+            AspectManager.populate();  // fire-and-forget; errors are handled internally
+        }
+
         try {
             const wsCtx = await WorksheetContext.gather(['selection', 'sheet', 'styles', 'charts']);
             const runStore = DagStore.create();

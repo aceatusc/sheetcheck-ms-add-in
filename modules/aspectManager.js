@@ -36,7 +36,19 @@ const AspectManager = (() => {
         _overlay.classList.add('visible');
         document.getElementById('chat-panel')?.classList.add('nav-active');
         _render();
+        // Only auto-populate if aspects haven't been loaded yet.
+        // After the first prompt, populate() is called in the background,
+        // so by the time the user clicks the button aspects are already there.
         if (!_aspects.length) _onPopulate();
+    }
+
+    /**
+     * Populate aspects in the background without opening the panel.
+     * Called by ChatManager after the first user prompt so aspects are
+     * ready by the time the user clicks the Specifications button.
+     */
+    async function populate() {
+        await _onPopulate();
     }
 
     function close() {
@@ -253,5 +265,5 @@ const AspectManager = (() => {
         }
     }
 
-    return { init, open, close };
+    return { init, open, close, populate };
 })();
