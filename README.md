@@ -1,4 +1,4 @@
-# Pista — Excel Verification Agent
+# Pista MS Excel Add-in
 
 An Excel add-in that uses AI to help verify and modify spreadsheet agent outputs.
 
