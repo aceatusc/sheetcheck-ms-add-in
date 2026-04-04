@@ -70,7 +70,7 @@ const ChatManager = (() => {
         // Intro line
         const intro = document.createElement('p');
         intro.className   = 'segment-msg-intro';
-        intro.textContent = `I'm ready to walk you through these ${segments.length} update${segments.length !== 1 ? 's' : ''} step-by-step:`;
+        intro.textContent = `I'm ready to walk you through these ${segments.length} change${segments.length !== 1 ? 's' : ''} step-by-step:`;
         b.appendChild(intro);
 
         // Step list: bold description + muted explanation
