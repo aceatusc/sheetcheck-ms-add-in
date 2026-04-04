@@ -22,11 +22,11 @@ const AspectManager = (() => {
         _overlay     = document.getElementById('aspect-overlay');
         _listEl      = document.getElementById('aspect-list');
         _populateBtn = document.getElementById('aspect-populate-btn');
-        // _verifyBtn   = document.getElementById('aspect-verify-btn');
+        _verifyBtn   = document.getElementById('aspect-verify-btn');
 
         document.getElementById('aspect-close-btn').addEventListener('click', close);
         _populateBtn.addEventListener('click', _onPopulate);
-        // _verifyBtn.addEventListener('click', _onVerify);
+        _verifyBtn.addEventListener('click', _onVerify);
         document.getElementById('aspect-add-btn').addEventListener('click', _onAdd);
     }
 
@@ -37,6 +37,15 @@ const AspectManager = (() => {
         document.getElementById('chat-panel')?.classList.add('nav-active');
         _render();
         if (!_aspects.length) _onPopulate();
+    }
+
+    /** Opens the panel and always triggers a fresh populate — used by ChatManager. */
+    function openAndPopulate() {
+        _aspects = [];
+        _overlay.classList.add('visible');
+        document.getElementById('chat-panel')?.classList.add('nav-active');
+        _render();
+        _onPopulate();
     }
 
     function close() {
@@ -82,8 +91,8 @@ const AspectManager = (() => {
             return;
         }
 
-        // _verifyBtn.disabled  = true;
-        // _verifyBtn.innerHTML = '<span class="aspect-btn-icon">✓</span> Verifying…';
+        _verifyBtn.disabled  = true;
+        _verifyBtn.innerHTML = '<span class="aspect-btn-icon">✓</span> Verifying…';
 
         _aspects = _aspects.map(a => ({ id: a.id, label: a.label, loading: true }));
         _render();
@@ -114,8 +123,8 @@ const AspectManager = (() => {
             errEl.textContent = `Verification failed: ${err.message}`;
             _listEl.appendChild(errEl);
         } finally {
-            // _verifyBtn.disabled  = false;
-            // _verifyBtn.innerHTML = '<span class="aspect-btn-icon">✓</span> Verify';
+            _verifyBtn.disabled  = false;
+            _verifyBtn.innerHTML = '<span class="aspect-btn-icon">✓</span> Verify';
         }
     }
 
@@ -253,5 +262,5 @@ const AspectManager = (() => {
         }
     }
 
-    return { init, open, close };
+    return { init, open, openAndPopulate, close };
 })();
