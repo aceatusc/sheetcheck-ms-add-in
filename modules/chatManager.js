@@ -99,7 +99,7 @@ const ChatManager = (() => {
         actions.className = 'message-actions';
         const btn = document.createElement('button');
         btn.className   = 'message-action-btn primary';
-        btn.textContent = '▶ Go';
+        btn.textContent = '▶ Begin Tour';
         btn.addEventListener('click', async () => {
             btn.disabled    = true;
             btn.textContent = 'Starting…';
@@ -107,7 +107,7 @@ const ChatManager = (() => {
                 await DagRunner.start(chainId);
             } catch (_) {
             } finally {
-                btn.textContent = '▶ Go';
+                btn.textContent = '▶ Begin Tour';
                 btn.disabled    = false;
             }
         });
