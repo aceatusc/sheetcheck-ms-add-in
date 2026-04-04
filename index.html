@@ -114,10 +114,22 @@
 
 <!-- Aspect / Verify Panel -->
 <div id="aspect-overlay">
-    <button class="aspect-close" id="aspect-close-btn">✕</button>
+    <div class="aspect-header">
+        <div class="aspect-header-title">
+            <svg class="pista-logo" width="14" height="14" viewBox="0 0 36 36" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                <ellipse cx="18" cy="20" rx="11" ry="13" fill="#C9A87C" />
+                <ellipse cx="18" cy="20" rx="8.5" ry="10.5" fill="#e0c89a" />
+                <path d="M18 9 Q19.5 14 18 20 Q16.5 26 18 31" stroke="#C9A87C" stroke-width="1.2" fill="none"/>
+                <ellipse cx="18" cy="11" rx="5" ry="4" fill="#7DAA6F" />
+                <ellipse cx="18" cy="10.5" rx="3.5" ry="2.8" fill="#9DC98A" />
+            </svg>
+            <span class="aspect-header-tag">Specifications</span>
+        </div>
+        <p class="aspect-header-desc">Review and edit the requirements below, then click Confirm to begin:</p>
+    </div>
     <div class="aspect-toolbar">
         <button class="aspect-btn aspect-btn--populate" id="aspect-populate-btn">
-            <span class="aspect-btn-icon">⟳</span> Populate
+            <span class="aspect-btn-icon">⟳</span> Generate with AI
         </button>
         <button class="aspect-btn aspect-btn--add" id="aspect-add-btn">+ Add</button>
     </div>

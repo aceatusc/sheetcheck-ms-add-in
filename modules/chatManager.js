@@ -43,12 +43,14 @@ const ChatManager = (() => {
 
         ChatHistory.push(text);
 
-        // Reveal the Specifications button on the first prompt, populate aspects
-        // in the background, then open the panel once they're ready.
+        // Reveal the Specifications button on the first prompt, populate aspects,
+        // open the panel, then wait for the user to confirm before proceeding.
         const verifyBtn = document.getElementById('verify-btn');
         if (verifyBtn?.hidden) {
             verifyBtn.hidden = false;
-            AspectManager.populate().then(() => AspectManager.open());
+            await AspectManager.populate();
+            AspectManager.open();
+            await AspectManager.waitForClose();
         }
 
         try {

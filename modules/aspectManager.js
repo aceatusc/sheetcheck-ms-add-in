@@ -12,9 +12,10 @@ const AspectManager = (() => {
 
     // ── State ─────────────────────────────────────────────────────────────────
     let _aspects = [];   // [{ id, label, result?, loading? }]
+    let _closeResolve = null;  // resolves waitForClose()
 
     // ── DOM refs (elements declared in index.html) ────────────────────────────
-    let _overlay, _listEl, _populateBtn, _verifyBtn;
+    let _overlay, _listEl, _populateBtn;
 
     // ── Init ──────────────────────────────────────────────────────────────────
 
@@ -22,9 +23,7 @@ const AspectManager = (() => {
         _overlay     = document.getElementById('aspect-overlay');
         _listEl      = document.getElementById('aspect-list');
         _populateBtn = document.getElementById('aspect-populate-btn');
-        // _verifyBtn   = document.getElementById('aspect-verify-btn');
 
-        document.getElementById('aspect-close-btn').addEventListener('click', close);
         document.getElementById('aspect-confirm-btn').addEventListener('click', close);
         _populateBtn.addEventListener('click', _onPopulate);
         // _verifyBtn.addEventListener('click', _onVerify);
@@ -35,26 +34,47 @@ const AspectManager = (() => {
 
     function open() {
         _overlay.classList.add('visible');
+        _overlay.classList.remove('closing');
         document.getElementById('chat-panel')?.classList.add('nav-active');
         _render();
-        // Only auto-populate if aspects haven't been loaded yet.
-        // After the first prompt, populate() is called in the background,
-        // so by the time the user clicks the button aspects are already there.
         if (!_aspects.length) _onPopulate();
     }
 
     /**
+     * Returns a promise that resolves when the panel is closed.
+     * ChatManager awaits this before proceeding with the LLM call.
+     */
+    function waitForClose() {
+        return new Promise(resolve => { _closeResolve = resolve; });
+    }
+
+    /**
      * Populate aspects in the background without opening the panel.
-     * Called by ChatManager after the first user prompt so aspects are
-     * ready by the time the user clicks the Specifications button.
      */
     async function populate() {
         await _onPopulate();
     }
 
     function close() {
+        // Animate the panel shrinking toward the verify button
+        const btn = document.getElementById('verify-btn');
+        if (btn) {
+            const br = btn.getBoundingClientRect();
+            const or = _overlay.getBoundingClientRect();
+            const tx = (br.left + br.width  / 2) - (or.left + or.width  / 2);
+            const ty = (br.top  + br.height / 2) - (or.top  + or.height / 2);
+            _overlay.style.setProperty('--close-tx', `${tx}px`);
+            _overlay.style.setProperty('--close-ty', `${ty}px`);
+        }
+        _overlay.classList.add('closing');
         _overlay.classList.remove('visible');
         document.getElementById('chat-panel')?.classList.remove('nav-active');
+
+        // Resolve any pending waitForClose promise after the animation finishes
+        setTimeout(() => {
+            _overlay.classList.remove('closing');
+            if (_closeResolve) { _closeResolve(); _closeResolve = null; }
+        }, 320);
     }
 
     // ── Populate ──────────────────────────────────────────────────────────────
@@ -266,5 +286,5 @@ const AspectManager = (() => {
         }
     }
 
-    return { init, open, close, populate };
+    return { init, open, close, populate, waitForClose };
 })();
