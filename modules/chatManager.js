@@ -67,12 +67,18 @@ const ChatManager = (() => {
         const b = document.createElement('div');
         b.className = 'message-bubble';
 
+        // Intro line
+        const intro = document.createElement('p');
+        intro.className   = 'segment-msg-intro';
+        intro.textContent = `I'm ready to walk you through these ${segments.length} update${segments.length !== 1 ? 's' : ''} step-by-step:`;
+        b.appendChild(intro);
+
         // Apply button first
         const actions = document.createElement('div');
         actions.className = 'message-actions';
         const btn = document.createElement('button');
         btn.className   = 'message-action-btn primary';
-        btn.textContent = '▶ Apply to sheet';
+        btn.textContent = '▶ Go';
         btn.addEventListener('click', async () => {
             btn.disabled    = true;
             btn.textContent = 'Starting…';
@@ -80,18 +86,12 @@ const ChatManager = (() => {
                 await DagRunner.start(chainId);
             } catch (_) {
             } finally {
-                btn.textContent = '▶ Apply to sheet';
+                btn.textContent = '▶ Go';
                 btn.disabled    = false;
             }
         });
         actions.appendChild(btn);
         b.appendChild(actions);
-
-        // Intro line
-        const intro = document.createElement('p');
-        intro.className   = 'segment-msg-intro';
-        intro.textContent = `Alright! I'm ready to apply the following ${segments.length} change${segments.length !== 1 ? 's' : ''}:`;
-        b.appendChild(intro);
 
         // Step list: bold description + muted explanation
         const list = document.createElement('div');
