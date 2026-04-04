@@ -26,6 +26,7 @@ const StepNavigator = (() => {
     const _chatPanel    = document.getElementById('chat-panel');
     const _badge        = document.getElementById('step-nav-badge');
     const _ranges       = document.getElementById('step-nav-ranges');
+    const _formulaEl    = document.getElementById('step-nav-formula');
     const _desc         = document.getElementById('step-nav-description');
     const _expl         = document.getElementById('step-nav-explanation');
     const _counter      = document.getElementById('step-nav-counter');
@@ -269,6 +270,40 @@ const StepNavigator = (() => {
             c.textContent = addr;
             _ranges.appendChild(c);
         });
+
+        // Formula info accordion — only shown when the segment has a formula
+        _formulaEl.innerHTML = '';
+        const fi = displaySeg?.formula_info;
+        if (fi?.name) {
+            const details = document.createElement('details');
+            details.className = 'formula-accordion';
+
+            const summary = document.createElement('summary');
+            summary.className = 'formula-pill';
+            summary.innerHTML =
+                `<span class="formula-pill-fx">fx</span>`
+                + `<span class="formula-pill-name">${fi.name}</span>`
+                + `<span class="formula-pill-chevron">›</span>`;
+            details.appendChild(summary);
+
+            const body = document.createElement('div');
+            body.className = 'formula-body';
+
+            const descP = document.createElement('p');
+            descP.className   = 'formula-desc';
+            descP.textContent = fi.description;
+            body.appendChild(descP);
+
+            if (fi.example) {
+                const exPre = document.createElement('code');
+                exPre.className   = 'formula-example';
+                exPre.textContent = fi.example;
+                body.appendChild(exPre);
+            }
+
+            details.appendChild(body);
+            _formulaEl.appendChild(details);
+        }
 
         if (atRoot) {
             _desc.textContent = 'Original sheet — no changes applied yet.';
