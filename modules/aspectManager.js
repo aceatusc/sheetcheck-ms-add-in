@@ -98,10 +98,10 @@ const AspectManager = (() => {
                 _aspects  = all.map(r => ({ id: r.id, label: r.label }));
             }
             _render();
-            _populateBtn.innerHTML = '<span class="aspect-btn-icon">✦</span> Generate with AI';
+            _populateBtn.innerHTML = '<span class="aspect-btn-icon">✦</span> Regenerate with AI';
         } catch (err) {
             _listEl.innerHTML = `<span class="aspect-error">Populate failed: ${err.message}</span>`;
-            _populateBtn.innerHTML = '<span class="aspect-btn-icon">✦</span> Generate with AI';
+            _populateBtn.innerHTML = '<span class="aspect-btn-icon">✦</span> Regenerate with AI';
         } finally {
             _populateBtn.disabled = false;
         }
