@@ -67,30 +67,10 @@ const ChatManager = (() => {
         const b = document.createElement('div');
         b.className = 'message-bubble';
 
-        // Apply button first
-        const actions = document.createElement('div');
-        actions.className = 'message-actions';
-        const btn = document.createElement('button');
-        btn.className   = 'message-action-btn primary';
-        btn.textContent = '▶ Apply to sheet';
-        btn.addEventListener('click', async () => {
-            btn.disabled    = true;
-            btn.textContent = 'Starting…';
-            try {
-                await DagRunner.start(chainId);
-            } catch (_) {
-            } finally {
-                btn.textContent = '▶ Apply to sheet';
-                btn.disabled    = false;
-            }
-        });
-        actions.appendChild(btn);
-        b.appendChild(actions);
-
         // Intro line
         const intro = document.createElement('p');
         intro.className   = 'segment-msg-intro';
-        intro.textContent = `Alright! I'm ready to apply the following ${segments.length} change${segments.length !== 1 ? 's' : ''}:`;
+        intro.textContent = `I'm ready to walk you through these ${segments.length} change${segments.length !== 1 ? 's' : ''} step-by-step:`;
         b.appendChild(intro);
 
         // Step list: bold description + muted explanation
@@ -113,6 +93,26 @@ const ChatManager = (() => {
             list.appendChild(item);
         });
         b.appendChild(list);
+
+        // Apply button first
+        const actions = document.createElement('div');
+        actions.className = 'message-actions';
+        const btn = document.createElement('button');
+        btn.className   = 'message-action-btn primary';
+        btn.textContent = '▶ Begin Tour';
+        btn.addEventListener('click', async () => {
+            btn.disabled    = true;
+            btn.textContent = 'Starting…';
+            try {
+                await DagRunner.start(chainId);
+            } catch (_) {
+            } finally {
+                btn.textContent = '▶ Begin Tour';
+                btn.disabled    = false;
+            }
+        });
+        actions.appendChild(btn);
+        b.appendChild(actions);
 
         const meta = document.createElement('span');
         meta.className   = 'message-meta';

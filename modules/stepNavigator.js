@@ -330,9 +330,9 @@ const StepNavigator = (() => {
     const PAD_Y  = 16;
 
     const NODE_STYLE = {
-        current:   { fill: 'rgba(255,255,255,0.18)', stroke: '#ffffff',              strokeW: 2,   r: NODE_R },
-        visited:   { fill: 'rgba(62,207,142,0.85)',  stroke: '#3ecf8e',              strokeW: 1.5, r: NODE_R },
-        unvisited: { fill: 'rgba(255,255,255,0.07)', stroke: 'rgba(255,255,255,0.25)', strokeW: 1, r: NODE_R },
+        current:   { fill: 'rgba(125,170,111,0.25)', stroke: '#4d8a3f',              strokeW: 2,   r: NODE_R },
+        visited:   { fill: 'rgba(125,170,111,0.85)',  stroke: '#7DAA6F',             strokeW: 1.5, r: NODE_R },
+        unvisited: { fill: 'rgba(46,45,41,0.06)',    stroke: 'rgba(46,45,41,0.25)', strokeW: 1,   r: NODE_R },
     };
 
     function _px(col) { return PAD_X + col * COL_W; }
@@ -363,10 +363,10 @@ const StepNavigator = (() => {
             // Diagonal fork connector for branch edges that change row
             if (e.isBranch && e.fromRow !== e.toRow) {
                 const isActiveFork = e.toId === graph.currentNodeId;
-                const forkStroke = e.failed      ? '#f5643c'
-                                 : isActiveFork  ? '#ffffff'
-                                 : e.executed    ? '#3ecf8e'
-                                 : 'rgba(255,255,255,0.22)';
+                const forkStroke = e.failed      ? '#c0533a'
+                                 : isActiveFork  ? '#4d8a3f'
+                                 : e.executed    ? '#7DAA6F'
+                                 : 'rgba(46,45,41,0.22)';
                 const fork = document.createElementNS(SVG_NS, 'line');
                 fork.setAttribute('x1', x1); fork.setAttribute('y1', y1);
                 fork.setAttribute('x2', x2); fork.setAttribute('y2', y2);
@@ -383,15 +383,15 @@ const StepNavigator = (() => {
             const isActive = e.toId === graph.currentNodeId;
             let stroke, width, dash;
             if (e.failed) {
-                stroke = '#f5643c'; width = '2.5'; dash = 'none';
+                stroke = '#c0533a'; width = '2.5'; dash = 'none';
             } else if (isActive) {
-                stroke = '#ffffff'; width = '2.5'; dash = 'none';
+                stroke = '#4d8a3f'; width = '2.5'; dash = 'none';
             } else if (e.executed) {
-                stroke = '#3ecf8e'; width = '2'; dash = 'none';
+                stroke = '#7DAA6F'; width = '2'; dash = 'none';
             } else if (e.isBranch) {
-                stroke = 'rgba(255,255,255,0.15)'; width = '1.5'; dash = '3 2';
+                stroke = 'rgba(46,45,41,0.18)'; width = '1.5'; dash = '3 2';
             } else {
-                stroke = 'rgba(79,142,247,0.25)'; width = '1.5'; dash = '4 3';
+                stroke = 'rgba(125,170,111,0.3)'; width = '1.5'; dash = '4 3';
             }
 
             const line = document.createElementNS(SVG_NS, 'line');
