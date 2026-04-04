@@ -1,17 +1,17 @@
 /* =============================================
-   DESIGN TOKENS & THEME
+   DESIGN TOKENS & THEME — Pistachio Light
    ============================================= */
 :root {
-    --color-bg:           #0f1117;
-    --color-surface:      #1a1d27;
-    --color-border:       #2a2d3a;
-    --color-accent:       #4f8ef7;
-    --color-accent-dim:   #1e3a6e;
-    --color-text:         #e8eaf0;
-    --color-text-muted:   #7a7f9a;
-    --color-success:      #3ecf8e;
-    --color-warning:      #f5a623;
-    --color-error:        #f25f5c;
+    --color-bg:           #f4f1eb;
+    --color-surface:      #fdfcf8;
+    --color-border:       #ddd8cc;
+    --color-accent:       #7DAA6F;
+    --color-accent-dim:   #d4e8cc;
+    --color-text:         #2e2d29;
+    --color-text-muted:   #8a8778;
+    --color-success:      #5aab6e;
+    --color-warning:      #C9A87C;
+    --color-error:        #c0533a;
 
     --font-ui:   'Segoe UI', system-ui, sans-serif;
     --font-mono: 'Cascadia Code', 'Consolas', monospace;
