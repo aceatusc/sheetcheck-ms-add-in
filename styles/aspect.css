@@ -4,11 +4,11 @@
 
 #aspect-overlay {
     position: fixed;
-    bottom: 170px;
+    bottom: 70px;
     left: 50%;
     transform: translateX(-50%) translateY(20px);
     width: calc(100% - 16px);
-    max-width: 440px;
+    max-width: 640px;
     background: var(--color-surface);
     border: 1px solid rgba(125,170,111,0.35);
     border-radius: 14px;
