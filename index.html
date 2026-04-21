@@ -29,7 +29,7 @@
         </svg>
         <h1>Pista</h1>
         <span class="model-badge" hidden>AI</span>
-        <button id="verify-btn" class="verify-header-btn" title="Open Verify panel">
+        <button id="verify-btn" class="verify-header-btn" title="Open Verify panel" hidden>
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/>
             </svg>
@@ -67,6 +67,7 @@
 
     <div id="step-nav-badge">Step 1 of 8</div>
     <div id="step-nav-ranges"></div>
+    <div id="step-nav-formula"></div>
     <div id="step-nav-description">Description</div>
     <div id="step-nav-explanation">Explanation</div>
 
@@ -114,17 +115,25 @@
 
 <!-- Aspect / Verify Panel -->
 <div id="aspect-overlay">
-    <button class="aspect-close" id="aspect-close-btn">✕</button>
+    <div class="aspect-header">
+        <div class="aspect-header-title">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/>
+            </svg>
+            <span class="aspect-header-tag">Specifications</span>
+        </div>
+        <p class="aspect-header-desc">Requirements your worksheet should meet after the assistant's changes.</p>
+    </div>
     <div class="aspect-toolbar">
         <button class="aspect-btn aspect-btn--populate" id="aspect-populate-btn">
-            <span class="aspect-btn-icon">⟳</span> Populate
+            <span class="aspect-btn-icon">⟳</span> Generate with AI
         </button>
         <button class="aspect-btn aspect-btn--add" id="aspect-add-btn">+ Add</button>
     </div>
     <div id="aspect-list" class="aspect-list"></div>
-    <!-- <button class="aspect-btn aspect-btn--verify" id="aspect-verify-btn">
-            <span class="aspect-btn-icon">✓</span> Verify
-    </button> -->
+    <div class="aspect-footer">
+        <button class="aspect-btn aspect-btn--confirm" id="aspect-confirm-btn">✓ Confirm</button>
+    </div>
 </div>
 <div id="execution-panel">
     <div id="execution-header">

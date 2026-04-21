@@ -296,6 +296,10 @@
 }
 
 /* ── Verify button in header ── */
+.verify-header-btn[hidden] {
+    display: none !important;
+}
+
 .verify-header-btn {
     margin-left: auto;
     display: flex;
